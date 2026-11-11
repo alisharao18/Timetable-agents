@@ -9,7 +9,7 @@ _CSS = f"""
 :root {{ --navy:{NAVY}; --red:{RED}; --black:{BLACK}; --mist:{MIST}; --line:{LINE}; --slate:{SLATE}; }}
 html, body, [class*="css"] {{ font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }}
 .stApp {{ background:{WHITE}; color:{BLACK}; }}
-.block-container {{ padding-top: 1.2rem; max-width: 1280px; }}
+.block-container {{ padding-top: 3.6rem; max-width: 1280px; }}
 h1, h2, h3 {{ color:{NAVY}; letter-spacing:-0.01em; }}
 h2 {{ border-bottom: 2px solid {LINE}; padding-bottom: .3rem; }}
 section[data-testid="stSidebar"] {{ background:{NAVY}; }}
@@ -20,11 +20,14 @@ section[data-testid="stSidebar"] .stButton > button {{
 section[data-testid="stSidebar"] .stButton > button:hover {{ background: rgba(255,255,255,.12); border-color:{WHITE}; }}
 .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
   border-radius: 4px; border: 1px solid {NAVY}; color:{NAVY}; background:{WHITE}; font-weight: 600; }}
+.stButton > button:disabled {{ border-color:{LINE}; color:#9AA3B5; background:{MIST}; }}
 .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {{
   background:{MIST}; color:{NAVY}; border-color:{NAVY}; }}
-.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
+.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primaryFormSubmit"] {{
   background:{NAVY}; color:{WHITE}; border-color:{NAVY}; }}
-.stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primary"]:hover {{
+.stButton > button[kind="primary"]:hover, .stFormSubmitButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primaryFormSubmit"]:hover {{
   background:#081F45; color:{WHITE}; }}
 div[data-testid="stMetric"] {{ background:{MIST}; border:1px solid {LINE}; border-left:4px solid {NAVY};
   border-radius:4px; padding:.6rem .8rem; }}

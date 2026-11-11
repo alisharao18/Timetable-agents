@@ -6,6 +6,13 @@ Department and room agents learn to negotiate a university timetable using
 reinforcement learning. Every timetable produced satisfies all hard
 constraints: no double-booked rooms, faculty or student groups.
 
+## College-wide version
+
+`college-timetable/` scales this idea to a whole college: it imports the real
+classroom and lab workbooks, finds and books free rooms without double
+booking, and generates the full timetable with a solver plus negotiating
+agents. See [college-timetable/README.md](college-timetable/README.md).
+
 ## How it works
 
 6 department agents propose slots for their classes; 4 room agents decide

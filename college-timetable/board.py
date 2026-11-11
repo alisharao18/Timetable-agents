@@ -18,6 +18,8 @@ class Board:
         self.lunch = {}                               # optional: root group -> {day: reserved hour}
         self._rooms = {}                              # cache: (kind, lab_type, size) -> rooms
         self.own = {g: p.dept_rooms.get(v["dept"], set()) for g, v in p.groups.items()}
+        self.home = {}                                # division -> the classroom it settled in
+        self.home_count = defaultdict(int)            # classroom -> divisions settled there
 
     # ---- who is where
     def leaves_of(self, g):
@@ -51,7 +53,15 @@ class Board:
         free = self.free_rooms(s, d, h)
         if not free:
             return None
-        return min(free, key=lambda r: (r["id"] not in own, r["capacity"], r["id"]))["id"]
+        if s["kind"] != "lecture":
+            return min(free, key=lambda r: (r["id"] not in own, r["capacity"], r["id"]))["id"]
+        root = self.p.root(s["group"])
+        if root in self.home:
+            home = self.home[root]
+            return min(free, key=lambda r: (r["id"] != home, r["id"] not in own, r["capacity"], r["id"]))["id"]
+        # no home yet: settle in the least-shared room, own department's first
+        return min(free, key=lambda r: (r["id"] not in own, self.home_count[r["id"]],
+                                        r["capacity"], r["id"]))["id"]
 
     # ---- the rules
     def conflicts(self, s, d, h):
@@ -121,6 +131,9 @@ class Board:
     def place(self, sid, d, h, room):
         s = self.sess[sid]
         self.time[sid], self.room[sid] = (d, h), room
+        if s["kind"] == "lecture" and self.p.root(s["group"]) not in self.home:
+            self.home[self.p.root(s["group"])] = room
+            self.home_count[room] += 1
         for k in range(s["dur"]):
             self.t_busy[s["teacher"], d, h + k] = sid
             self.g_busy[s["group"], d, h + k] = sid

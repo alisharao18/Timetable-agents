@@ -134,6 +134,10 @@ def score(p, rows):
             own_base += s["dur"]
             own += s["dur"] if r["room_id"] in mine else 0
     busy, t_days = defaultdict(set), defaultdict(set)
+    lec_rooms = defaultdict(lambda: defaultdict(int))
+    for r in rows:
+        if r.get("kind") == "lecture":
+            lec_rooms[r["group_id"]][r["room_id"]] += 1
     for r in rows:
         busy[r["group_id"], r["day"]].add(r["hour"])
         t_days[r["teacher_id"]].add(r["day"])
@@ -166,6 +170,9 @@ def score(p, rows):
         "per_dept": per_dept,
         "own_room_share": round(100 * own / own_base, 1) if own_base else None,
         "lunch_peak_share": round(100 * peak, 1),
+        # share of lecture hours a division spends in its most-used classroom
+        "home_room_share": round(100 * sum(max(v.values()) for v in lec_rooms.values())
+                                 / max(1, sum(sum(v.values()) for v in lec_rooms.values())), 1),
         "gaps": round(gaps / max(1, student_days), 2),                  # idle hours per class-day
         "days_over": days_over, "teacher_days_over": t_over,
         "penalty": round(10 * soft + 80 * days_over + 50 * t_over + 3 * gaps
