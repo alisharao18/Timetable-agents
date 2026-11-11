@@ -67,22 +67,47 @@ def parse_hour(label):
     return n if 7 <= n <= 18 else None
 
 
+MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july",
+               "august", "september", "october", "november", "december"]
+
+
+def _month(word):
+    w = word.lower()
+    if w[:3] in MONTHS:
+        return MONTHS[w[:3]]
+    import difflib                                   # "Ocober" -> october
+    hit = difflib.get_close_matches(w, MONTH_NAMES, n=1, cutoff=0.75)
+    return MONTH_NAMES.index(hit[0]) + 1 if hit else None
+
+
 def _dates_in(text, year):
-    out = []
-    for d, m, y in re.findall(r"(\d{1,2})[.\-/](\d{1,2})(?:[.\-/](\d{2,4}))?", text):
+    """All dates written in a cell. Returns (dates, complete): complete is
+    False when the cell mentions a day number we could not turn into a date,
+    so the caller can refuse to guess."""
+    out, complete = [], True
+    # 26.10.2026  30.9  7.10/14.10  (dots or slashes; a hyphen only with a year,
+    # so time ranges like "9-4" or "8-12 pm" are never read as dates)
+    for d, m, y in re.findall(r"(?<![\d.])(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?![\d])", text) + \
+            re.findall(r"(?<!\d)(\d{1,2})-(\d{1,2})-(\d{2,4})(?!\d)", text):
         yy = int(y) if y else year
         yy += 2000 if yy < 100 else 0
         try:
             out.append(date(yy, int(m), int(d)))
         except ValueError:
-            pass
-    for d, mon in re.findall(r"(\d{1,2})\s*(?:st|nd|rd|th)?\s+([A-Za-z]{3})", text):
-        if mon.lower() in MONTHS:
+            complete = False
+    worded = 0
+    for d, mon in re.findall(r"(\d{1,2})\s*(?:st|nd|rd|th)?\s*(?:of\s+)?([A-Za-z]{3,})", text):
+        mm = _month(mon)
+        if mm:
+            worded += 1
             try:
-                out.append(date(year, MONTHS[mon.lower()], int(d)))
+                out.append(date(year, mm, int(d)))
             except ValueError:
-                pass
-    return sorted(set(out))
+                complete = False
+    ordinals = len(re.findall(r"\b\d{1,2}(?:st|nd|rd|th)\b", text))
+    if ordinals > worded:                            # "15th & 22nd of October"
+        complete = False
+    return sorted(set(out)), complete
 
 
 def classify_cell(value, year, day=None):
@@ -96,8 +121,8 @@ def classify_cell(value, year, day=None):
         return "code", []
     if re.search(r"\bevery\b", text, re.I):          # "booked on every saturday"
         return "code", []
-    dates = _dates_in(text, year)
-    if not dates:
+    dates, complete = _dates_in(text, year)
+    if not dates or not complete:
         return "unresolved", []
     if day and any(DAYS[d.weekday()] != day for d in dates if d.weekday() < 6):
         return "unresolved", []                      # date is not on this tab's day
@@ -176,8 +201,9 @@ def parse_classrooms(path, year=None):
                     _file_cell(res, name, day, h, ws.cell(r, c).value, year)
     res.rooms = list(seen.values())
     if "CR details" in wb.sheetnames:
-        listed = {str(r[0].value).strip() for r in wb["CR details"].iter_rows(min_col=3, max_col=3)
-                  if r[0].value and str(r[0].value).strip().startswith("E.")}
+        listed = {str(r[0].value).strip() for r in wb["CR details"].iter_rows(min_col=2, max_col=5)
+                  for r in [[x for x in r if str(x.value or "").strip().startswith("E.")]] if r
+                  }
         only_details = sorted(listed - set(seen))
         only_tabs = sorted(set(seen) - listed)
         if only_details or only_tabs:
@@ -201,7 +227,7 @@ def _lab_name(title, floor):
         return f"E.CC.{floor}01"
     base = re.split(r"\(capacity", t, flags=re.I)[0]
     base = re.sub(r"^Hardware\s+Lab\s*-\s*", "", base, flags=re.I).strip(" -")
-    return base.title()[:40] if base else ""
+    return re.sub(r"\s*-\s*", " - ", base)[:40] if base else ""
 
 
 def _lab_type(title):
@@ -210,6 +236,7 @@ def _lab_type(title):
         return "COMPUTER"
     base = re.split(r"\(CAPACITY", t)[0]
     base = re.sub(r"HARDWARE\s+LAB\s*\d*\s*-?|\bLAB\b|\bLABS\b", " ", base)
+    base = re.sub(r"\b\d+\b|-", " ", base)
     return re.sub(r"\s+", " ", base).strip(" -") or "GENERAL"
 
 

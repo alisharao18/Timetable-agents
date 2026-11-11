@@ -32,6 +32,11 @@ def test_classify_cell():
         date(2026, 10, 21), date(2026, 10, 28)]
     assert f("Booked full October", 2026)[0] == "unresolved"
     assert f("Booked on 26.10.2026", 2026, "Tue")[0] == "unresolved"   # 26 Oct is a Monday
+    assert f("Booked on 31 Oct from 9-4 for Prof. T", 2026, "Sat") == ("dated", [date(2026, 10, 31)])
+    assert f("Booked for test on 3rd of November 2026 from 9 am to 6 pm", 2026, "Tue")[1] == [date(2026, 11, 3)]
+    assert f("Booked for test on 31st of Ocober 2026 from 10 am", 2026, "Sat")[1] == [date(2026, 10, 31)]
+    assert f("Booked for test on 15th & 22nd of October 2026", 2026, "Thu")[0] == "unresolved"
+    assert f("Booked 8-12 pm for Dr X", 2026, "Sat")[0] == "unresolved"
     assert f("Engg. Ethics BTDS sem 1 booked on every saturday", 2026, "Sat")[0] == "code"
 
 
@@ -46,7 +51,8 @@ def test_classrooms(cr):
     assert any(d["room"] == "E.CR.108" and d["date"] == date(2026, 10, 26) and d["hour"] == 8
                for d in cr.dated)
     assert any("full October" in u["text"] and u["room"] == "E.CR.108" for u in cr.unresolved)
-    assert any("different rooms" in n for n in cr.notes)
+    note = next(n for n in cr.notes if "different rooms" in n)
+    assert "Only in CR details: E.CR.304" in note and "E.CR.101" in note.split("Only in day tabs:")[1]
 
 
 def test_every_classroom_cell_is_accounted_for(cr):
