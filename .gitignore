@@ -1,1 +1,4 @@
 __pycache__/
+.superpowers/
+*.db
+.pytest_cache/
