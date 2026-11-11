@@ -1,7 +1,7 @@
 # MPSTME College Timetable and Room Booking: Design
 
 Date: 11 November 2026
-Status: awaiting review
+Status: approved 11 November 2026, with staggered lunch added
 
 ## 1. Purpose
 
@@ -48,20 +48,23 @@ Hard rules (never broken):
 - A class group is scheduled only on days marked as on campus for it.
 - A teacher is never scheduled when marked unavailable.
 - Dated one-off bookings already in the database are respected.
+- Every class group has one free hour for lunch between 12 PM and 3 PM on
+  any day its classes run across that window.
 
 Soft rules (satisfied as far as possible, and scored):
 
 - Classes go in the department's own authorised rooms first.
 - Maximum days per week for a class group or teacher.
 - Saturday preference, preferred times, earliest start and latest finish.
-- Few gaps in a class group's day, and a free hour around midday.
+- Few gaps in a class group's day.
+- Lunch hours are staggered: the number of students free in each of the
+  three lunch hours (12-1, 1-2, 2-3) is kept as even as possible, and under
+  a canteen limit the committee can set. Teachers get a lunch hour in the
+  same window.
 - Fair spread of good and bad slots across departments.
 
 The committee can promote any soft rule to a hard rule for a given class
 group or teacher.
-
-Assumption to confirm: the midday free hour is a preference, not a fixed
-college-wide lunch break.
 
 ## 5. How the timetable is built (hybrid)
 
