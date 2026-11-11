@@ -24,6 +24,11 @@ streamlit run app.py
 The first run asks you to create the admin account. Data is kept in
 `college.db` in this folder. For a shared, hosted setup see [SETUP.md](SETUP.md).
 
+To run the tests: `pip install pytest`, then `python -m pytest` in this folder.
+The importer tests read the college workbooks from `tests/data/`
+(`classrooms.xlsx`, `labs.xlsx`). Those files list staff names and emails, so
+git ignores them and they are never pushed; without them those tests are skipped.
+
 ## First steps in the app
 
 1. **Data > Room workbooks**: upload the classroom workbook and the lab
