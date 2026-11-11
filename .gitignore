@@ -2,3 +2,4 @@ __pycache__/
 .superpowers/
 *.db
 .pytest_cache/
+college-timetable/tests/data/*.xlsx
