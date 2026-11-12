@@ -209,3 +209,33 @@ def test_too_many_hours_for_a_must_have_day_limit_is_named():
                         dur=1, size=60, lab_type=None) for i in range(4)]
     msgs = solver.check_feasible(p)
     assert any("3B IT-B1" in m and "in 1 day(s)" in m for m in msgs)
+
+
+def test_sunday_only_for_classes_that_list_it():
+    p = tiny()
+    assert "Sun" not in p.group_days(1)                    # nothing listed: Monday to Saturday
+    b = solver.construct(p)
+    assert all(d != "Sun" for d, _ in b.time.values())
+    p.gpref[1] = dict(days=["Sat", "Sun"], max_days=None, saturday_ok=True, earliest=None, latest=None,
+                      hard=False)
+    assert all(p.hard_ok(x, "Sun", 9) for x in p.sessions)  # listed: Sunday is usable
+    b = solver.construct(p)
+    assert len(b.time) == len(p.sessions)
+    assert {d for d, _ in b.time.values()} <= {"Sat", "Sun"}
+    assert validate.audit(p, solver.board_rows(p, b)) == []
+
+
+def test_sunday_setting_only_when_needed(engine):
+    import sample_data
+    assert sample_data.make_college(engine, 0, 0.25) == []
+    counts = {}
+    for mode in ("normal", "only_when_needed"):
+        db.set_setting(engine, "sunday_mode", mode)
+        p = solver.load_problem(engine)
+        assert p.sunday_cost == (0 if mode == "normal" else 4)
+        b = solver.construct(p)
+        assert len(b.time) == len(p.sessions)
+        rows = solver.board_rows(p, b)
+        assert validate.audit(p, rows) == []
+        counts[mode] = sum(1 for r in rows if r["day"] == "Sun")
+    assert counts["only_when_needed"] < counts["normal"]

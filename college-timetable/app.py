@@ -436,6 +436,17 @@ def page_data():
                                f"archive_{pick}.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         st.divider()
+        st.markdown("**Sunday classes**")
+        st.caption("Sunday is used only for classes whose days_on_campus list Sun (for example the final "
+                   "and second-last years). Choose how the generator treats it for them.")
+        modes = {"normal": "Like any other day", "only_when_needed": "Only when the weekdays cannot fit the class"}
+        cur_mode = db.get_setting(engine, "sunday_mode", "normal")
+        mode = st.radio("Sunday", list(modes), format_func=modes.get, index=list(modes).index(cur_mode),
+                        horizontal=True)
+        if mode != cur_mode and st.button("Save Sunday setting"):
+            db.set_setting(engine, "sunday_mode", mode)
+            flash("Saved. Generate again to apply it.")
+        st.divider()
         cur = int(float(db.get_setting(engine, "canteen_limit", 0) or 0))
         lim = st.number_input("Canteen limit: most students who should be at lunch in the same hour (0 = not set)",
                               min_value=0, max_value=20000, value=cur, step=50)

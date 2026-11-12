@@ -63,3 +63,15 @@ def test_even_term_numbers_semesters_and_the_real_class(engine):
     codes = set(g["code"])
     assert "10BTI DS" in codes and "9BTI DS" not in codes
     assert any(c.startswith("2B ") for c in codes) and not any(c.startswith("1B ") for c in codes)
+
+
+def test_only_final_and_second_last_years_may_come_on_sunday(engine):
+    f = sample_data.make_frames(engine, 0, 1.0)
+    g = f["ClassGroups"].set_index("code")
+    prefs = f["ClassPreferences"].set_index("class_group")
+    for code, row in prefs.iterrows():
+        prog, year = g.at[code, "programme"], int(g.at[code, "year"])
+        has_sun = "Sun" in str(row["days_on_campus"])
+        assert has_sun == sample_data.sunday_ok(prog, year), (code, prog, year)
+    assert sample_data.sunday_ok("B.Tech", 4) and sample_data.sunday_ok("B.Tech", 3)
+    assert not sample_data.sunday_ok("B.Tech", 2) and not sample_data.sunday_ok("PhD", 1)

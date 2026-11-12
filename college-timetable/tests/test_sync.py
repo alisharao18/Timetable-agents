@@ -53,8 +53,8 @@ def test_lab_title_resolves_unknown_room_and_unreadable_text(e):
     sync.add_edit(e, "4th floor", "Comp Lab E. CL 401  (capacity 29) - COMPUTER DEPT", "Wed", 14, None, "7 BTI B", "p@x")
     sync.add_edit(e, "4th floor", "Comp Lab E. CL 999 (capacity 30)", "Wed", 14, None, "7 BTI B", "p@x")
     sync.add_edit(e, "MONDAY", "E.CR.501", "Mon", 12, None, "Booked for dept meeting", "p@x")
-    sync.add_edit(e, "MONDAY", "E.CR.501", "Sun", 12, None, "x", "p@x")
-    assert sync.process_inbox(e) == {"applied": 2, "rejected": 2}
+    sync.add_edit(e, "MONDAY", "E.CR.501", "Sun", 12, None, "x", "p@x")   # Sunday is a college day now
+    assert sync.process_inbox(e) == {"applied": 3, "rejected": 1}
     assert db.q(e, "select room_id from placements where label='7 BTI B'")[0]["room_id"] == 2
     assert db.q(e, "select count(*) n from unresolved")[0]["n"] == 1
     assert "blocked until someone checks" in status(e)[2][1]

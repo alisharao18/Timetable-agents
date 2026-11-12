@@ -1,6 +1,6 @@
 """Printable timetables in the college's own layout: one A4 landscape page
 per class or per teacher, with the NMIMS / MPSTME header, a Monday-Saturday
-by hour grid (2-hour labs merged), the lunch break, a subject legend, a
+(and Sunday, when the class has Sunday classes) by hour grid (2-hour labs merged), the lunch break, a subject legend, a
 faculty legend, and HOD and Dean signature lines.
 """
 import io
@@ -17,10 +17,10 @@ from reportlab.platypus import (PageBreak, Paragraph, SimpleDocTemplate, Spacer,
 import db
 import semester
 import views
-from constants import DAYS, LUNCH_HOURS, TT_HOURS
+from constants import DAYS, DEFAULT_DAYS, LUNCH_HOURS, TT_HOURS
 
 DAY_NAMES = {"Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday",
-             "Fri": "Friday", "Sat": "Saturday"}
+             "Fri": "Friday", "Sat": "Saturday", "Sun": "Sunday"}
 SMALL_WORDS = {"and", "to", "in", "the", "for", "with", "a", "an", "on", "&"}   # "of" stays: FOML
 TITLES = re.compile(r"^(prof|dr|mr|mrs|ms|shri|smt)\.?$", re.I)
 
@@ -90,18 +90,18 @@ def _entries(f, rows, label):
     return out
 
 
-def _grid(entries, lunch_days=None):
+def _grid(entries, lunch_days=None, days=DAYS):
     """-> table data (with Paragraphs) and the merge spans."""
     cells = {(d, h): [] for d in DAYS for h in TT_HOURS}
     for d, start, dur, key, text in entries:
         for k in range(dur):
             if (d, start + k) in cells:
                 cells[d, start + k].append((key, start, dur, text))
-    data = [[Paragraph("Time", _head)] + [Paragraph(DAY_NAMES[d], _head) for d in DAYS]]
+    data = [[Paragraph("Time", _head)] + [Paragraph(DAY_NAMES[d], _head) for d in days]]
     spans, skip = [], set()
     for i, h in enumerate(TT_HOURS, start=1):
         row = [Paragraph(f"{(h - 1) % 12 + 1}:00 - {h % 12 + 1}:00", _cell)]
-        for j, d in enumerate(DAYS, start=1):
+        for j, d in enumerate(days, start=1):
             here = cells[d, h]
             if (d, h) in skip:
                 row.append("")
@@ -139,8 +139,9 @@ def _page(story, sem, line1, line2, entries, subjects, faculty):
                  colWidths=[13 * cm, 7.5 * cm, 6.2 * cm])
     info.setStyle(TableStyle([("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
     story.append(info)
-    data, spans = _grid(entries, _lunch(entries))
-    grid = Table(data, colWidths=[2.3 * cm] + [4.07 * cm] * 6,
+    days = DEFAULT_DAYS + (["Sun"] if any(e[0] == "Sun" for e in entries) else [])
+    data, spans = _grid(entries, _lunch(entries), days)
+    grid = Table(data, colWidths=[2.3 * cm] + [24.42 * cm / len(days)] * len(days),
                  rowHeights=[0.55 * cm] + [0.93 * cm] * len(TT_HOURS), repeatRows=1)
     style = [("GRID", (0, 0), (-1, -1), 0.6, colors.black),
              ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8ECF3")),

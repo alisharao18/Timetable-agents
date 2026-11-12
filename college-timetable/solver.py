@@ -20,7 +20,7 @@ except Exception as e:      # e.g. Windows "DLL load failed" inside Anaconda
     CP_SAT_ERROR = f"{type(e).__name__}: {e}"
 
 import db
-from constants import DAYS, LUNCH_HOURS, TT_HOURS
+from constants import DAYS, DEFAULT_DAYS, LUNCH_HOURS, TT_HOURS
 
 LAST_END = TT_HOURS[-1] + 1          # 18: classes end by 6 PM
 
@@ -37,6 +37,7 @@ class Problem:
     dept_rooms: dict = field(default_factory=dict)   # dept id -> {room id}
     blocked: set = field(default_factory=set)        # {(room id, day, hour)}
     canteen_limit: int = 0                           # 0 = no limit set
+    sunday_cost: int = 0                             # 0: Sunday is a normal day for classes that list it
     by_key: dict = field(default_factory=dict)       # session key -> session id
     lock_notes: list = field(default_factory=list)   # locks that could not be honoured
 
@@ -65,8 +66,10 @@ class Problem:
         return bool(s.get("lock") or s.get("block"))
 
     def group_days(self, g):
+        """Days the class may be on campus: as listed, or Monday to Saturday
+        when nothing is listed. Sunday only when listed."""
         days = self.pref_of(g).get("days")
-        return list(days) if days else list(DAYS)
+        return list(days) if days else list(DEFAULT_DAYS)
 
     def children(self):
         ch = defaultdict(list)
@@ -114,6 +117,8 @@ class Problem:
         gp, tp = self.pref_of(s["group"]), self.tpref.get(s["teacher"], {})
         if day == "Sat" and gp.get("saturday_ok") is False:
             cost += 6 * s["dur"]
+        if day == "Sun":                              # setting: Sunday only when needed
+            cost += self.sunday_cost * s["dur"]
         if gp.get("earliest") and h < gp["earliest"]:
             cost += 3
         if gp.get("latest") and h + s["dur"] > gp["latest"]:
@@ -191,9 +196,10 @@ def load_problem(engine, today=None):
     today = today or date.today()
     for r in db.q(engine, "select room_id, date, hour from bookings"):
         d = r["date"] if isinstance(r["date"], date) else date.fromisoformat(str(r["date"])[:10])
-        if d >= today and d.weekday() < 6:
+        if d >= today:
             p.blocked.add((r["room_id"], DAYS[d.weekday()], r["hour"]))
     p.canteen_limit = int(float(db.get_setting(engine, "canteen_limit", 0) or 0))
+    p.sunday_cost = 4 if db.get_setting(engine, "sunday_mode", "normal") == "only_when_needed" else 0
     return p
 
 

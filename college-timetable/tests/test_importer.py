@@ -60,7 +60,7 @@ def test_every_classroom_cell_is_accounted_for(cr):
     warnings.simplefilter("ignore")
     wb = openpyxl.load_workbook(DATA / "classrooms.xlsx")
     filled = 0
-    for tab in importer.DAY_TABS:
+    for tab in [t for t in importer.DAY_TABS if t in wb.sheetnames]:   # this workbook has no SUNDAY tab
         for row in wb[tab].iter_rows(min_row=6, max_row=17, min_col=2, max_col=43):
             filled += sum(importer.classify_cell(c.value, 2026)[0] != "empty" for c in row)
     cells = ({(w["room"], w["day"], w["hour"]) for w in cr.weekly}

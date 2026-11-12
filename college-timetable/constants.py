@@ -1,5 +1,8 @@
 """Shared constants: the shape of the college week."""
-DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+# The usual week. Sunday is used only by classes whose campus days list it
+# (at MPSTME, some final and second-last years).
+DEFAULT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 TT_HOURS = list(range(8, 18))      # timetable start hours: 8 AM .. 5 PM (ends 6 PM)
 BOOK_HOURS = list(range(7, 19))    # bookable start hours: 7 AM .. 6 PM, as in the sheets
 LUNCH_HOURS = (12, 13, 14)         # lunch is one free hour starting 12, 1 or 2

@@ -16,8 +16,6 @@ from constants import BOOK_HOURS, DAYS
 
 def _busy(engine, on, hours):
     """Room ids that are taken for any of `hours` on date `on`."""
-    if on.weekday() > 5:
-        return None
     day, hours = DAYS[on.weekday()], [int(h) for h in hours]
     P, B = db.placements.c, db.bookings.c
     with engine.connect() as c:
@@ -36,8 +34,6 @@ def _owned(engine, department):
 
 def check_request(on, start_hour, duration):
     """Plain-language reason a request cannot be searched, or None."""
-    if on.weekday() > 5:
-        return "That date is a Sunday. Rooms are booked Monday to Saturday."
     if duration < 1:
         return "Duration must be at least one hour."
     if start_hour not in BOOK_HOURS or start_hour + duration - 1 not in BOOK_HOURS:
@@ -75,8 +71,6 @@ def nearest_free(engine, on, start_hour, duration=1, limit=5, **need):
     found = []
     for offset in range(0, 8):
         d = on + timedelta(days=offset)
-        if d.weekday() > 5:
-            continue
         hours = sorted(BOOK_HOURS, key=lambda h: abs(h - start_hour))
         for h in hours:
             if (offset == 0 and h == start_hour) or check_request(d, h, duration):

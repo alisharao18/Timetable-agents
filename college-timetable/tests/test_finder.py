@@ -72,10 +72,12 @@ def test_overlapping_booking_is_refused_whole(e):
 
 
 def test_bad_requests_get_plain_messages(e):
-    assert "Sunday" in finder.book(e, "A", date(2026, 11, 15), 9, 1, "IT", "x", "a@x")[1]
+    ok, msg = finder.book(e, "A", date(2026, 11, 15), 9, 1, "IT", "x", "a@x")   # Sundays can be booked
+    assert ok and "Sun 15 Nov 2026" in msg
     assert "7 AM" in finder.book(e, "A", MON, 18, 2, "IT", "x", "a@x")[1]
     assert "no room" in finder.book(e, "Z", MON, 9, 1, "IT", "x", "a@x")[1]
-    assert finder.find_rooms(e, date(2026, 11, 15), 9) == []
+    sunday = {r["room"] for r in finder.find_rooms(e, date(2026, 11, 15), 9)}
+    assert sunday and "A" not in sunday                   # A was just booked for that Sunday hour
 
 
 def test_cancel_rules(e):

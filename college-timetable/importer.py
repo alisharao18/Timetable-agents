@@ -21,7 +21,7 @@ import db
 from constants import DAYS
 
 DAY_TABS = {"MONDAY": "Mon", "TUESDAY": "Tue", "WEDNESDAY": "Wed",
-            "THURSDAY": "Thu", "FRIDAY": "Fri", "SATURDAY": "Sat"}
+            "THURSDAY": "Thu", "FRIDAY": "Fri", "SATURDAY": "Sat", "SUNDAY": "Sun"}
 MONTHS = {m: i + 1 for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
 
@@ -124,10 +124,8 @@ def classify_cell(value, year, day=None):
     dates, complete = _dates_in(text, year)
     if not dates or not complete:
         return "unresolved", []
-    if day and any(DAYS[d.weekday()] != day for d in dates if d.weekday() < 6):
+    if day and any(DAYS[d.weekday()] != day for d in dates):
         return "unresolved", []                      # date is not on this tab's day
-    if any(d.weekday() == 6 for d in dates):
-        return "unresolved", []
     return "dated", dates
 
 

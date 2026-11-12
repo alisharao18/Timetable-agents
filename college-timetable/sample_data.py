@@ -9,7 +9,8 @@ Every programme runs all the years it has in A.Y. 2026-27:
   MCA       2 years
   Diploma   3 years;  M.Tech  2 years;  PhD coursework  1 year
 Senior cohorts share an open-elective block across departments, and final-
-year B.Tech Data Science has a department elective. Semester numbers follow
+year B.Tech Data Science has a department elective. Final and second-last
+years may also be timetabled on Sunday. Semester numbers follow
 the term in the semester settings (Odd: I, III, V ...; Even: II, IV, VI ...).
 
 One class is real: 9BTI DS (BTI Data Science, year 5), with the subjects and
@@ -237,8 +238,15 @@ def make_frames(engine, seed=0, scale=1.0):
             "Electives": f("Electives", electives)}
 
 
+def sunday_ok(prog, year):
+    """The college also runs on Sundays for the final and second-last years
+    of a programme (not for one-year PhD coursework)."""
+    return FINAL_YEAR[prog] > 1 and year >= FINAL_YEAR[prog] - 1
+
+
 def _class_prefs(rng, prog, year, code):
-    """Older years want fewer days and no Saturday; first years come all week."""
+    """Older years want fewer days and no Saturday; first years come all week.
+    Final and second-last years may also be timetabled on Sunday."""
     final = year == FINAL_YEAR[prog]
     senior = year >= 3
     if final:
@@ -249,6 +257,8 @@ def _class_prefs(rng, prog, year, code):
         max_days = ""
     likes_saturday = (not senior) or rng.random() < 0.2
     days = "Mon,Tue,Wed,Thu,Fri" if senior and not likes_saturday and rng.random() < 0.6 else ""
+    if sunday_ok(prog, year):
+        days = (days or "Mon,Tue,Wed,Thu,Fri,Sat") + ",Sun"
     return [code, days, max_days, "yes" if likes_saturday else "no", 8,
             17 if senior else 18, "no"]
 
@@ -265,8 +275,8 @@ def _add_real(groups, load, gprefs, owner, prog, year, code=REAL_CODE):
     for subject, teacher, hours, kind, who in REAL_LOAD:
         target = code if who == "div" else f"{code}-{who}"
         load.append([target, subject, teacher, hours, kind, "COMPUTER" if kind == "lab" else ""])
-    # at most 3 days a week, and that is a must
-    gprefs.append([code, "", 3, "yes", 8, 18, "yes"])
+    # at most 3 days a week, and that is a must; year 5 of 6 may also use Sunday
+    gprefs.append([code, "Mon,Tue,Wed,Thu,Fri,Sat,Sun", 3, "yes", 8, 18, "yes"])
 
 
 def make_college(engine, seed=0, scale=1.0):

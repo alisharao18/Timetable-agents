@@ -95,11 +95,13 @@ def grid(engine, by, key, week_of=None, f=None):
             for b in db.q(engine, """select b.date, b.hour, b.purpose, b.booked_by from bookings b
                                      join rooms r on r.id=b.room_id where r.name=:n""", n=key):
                 d = b["date"] if not isinstance(b["date"], str) else pd.Timestamp(b["date"]).date()
-                if monday <= d <= monday + timedelta(days=5):
+                if monday <= d <= monday + timedelta(days=6):
                     _put(table, DAYS[d.weekday()], b["hour"],
                          f"BOOKED {d:%d %b}: {b['purpose'] or ''} ({b['booked_by'] or ''})")
     else:
         raise ValueError(f"unknown view '{by}'")
+    if not table["Sun"].astype(bool).any():          # show Sunday only when something is on it
+        table = table.drop(columns="Sun")
     return table
 
 

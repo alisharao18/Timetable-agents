@@ -39,7 +39,7 @@ NOTES = [
     "DepartmentRooms: the classrooms and labs each department is authorised to use. Room names must match the room list exactly.",
     "ClassGroups: one row per division, and one per lab batch. A batch names its division in parent_code.",
     "TeachingLoad: one row per subject per class group. type is lecture or lab. A lab runs as 2-hour blocks, so its hours must be even.",
-    "ClassPreferences: days_on_campus are never broken. max_days, saturday_ok, earliest_start and latest_finish are preferences unless must = yes.",
+    "ClassPreferences: days_on_campus are never broken. Blank means Monday to Saturday; list Sun as well for a class that also comes on Sundays (e.g. Mon,Tue,Wed,Thu,Fri,Sat,Sun). max_days, saturday_ok, earliest_start and latest_finish are preferences unless must = yes.",
     "TeacherPreferences: unavailable_days and unavailable_hours (Day-Hour, 24-hour clock, e.g. Mon-14) are never broken. max_days and preferred (morning or afternoon) are preferences unless must = yes.",
     "Electives (optional): every row with the same block runs at the same hours, each with its own teacher and room. "
     "class_groups lists every class whose students choose among them (one division for a department elective; many "
@@ -135,7 +135,7 @@ def _days(v, where, problems):
         if d in DAYS:
             out.append(d)
         else:
-            problems.append(f"{where}: '{part.strip()}' is not a day (use Mon, Tue, ... Sat).")
+            problems.append(f"{where}: '{part.strip()}' is not a day (use Mon, Tue, ... Sat, Sun).")
     return out
 
 

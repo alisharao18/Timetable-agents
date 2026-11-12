@@ -61,6 +61,13 @@ git ignores them and they are never pushed; without them those tests are skipped
   a PDF in the college's own layout (header, grid with merged lab blocks,
   break, subject and faculty legends, HOD and Dean lines), or one PDF with
   every class or every teacher.
+- **Sundays.** The college also runs on Sundays for some classes (the final
+  and second-last years). A class is timetabled on Sunday only if its
+  `days_on_campus` lists `Sun`; leaving it blank means Monday to Saturday.
+  *Data > Settings > Sunday classes* chooses whether Sunday is used like any
+  other day for those classes, or only when the weekdays cannot fit them.
+  Rooms can be found and booked on Sundays too. Timetables and PDFs show a
+  Sunday column only when something is on it.
 - **Semesters.** *Data > Settings*: set the academic year, term, w.e.f. date
   and campus (used for semester numbers and PDF headers). *Start a new
   semester* archives the published timetable, then clears generated and
@@ -111,7 +118,7 @@ Senior cohorts (B.Tech years 3 and 4, MBA Tech year 4, BTI year 5) each share
 an open-elective block across departments, and final-year B.Tech Data Science
 has a department elective. Semester numbers follow the term in Settings.
 
-Older years ask for fewer days and no Saturday; final years ask for at most
+Final and second-last years may also come on Sunday (their campus days list Sun). Older years ask for fewer days and no Saturday; final years ask for at most
 4 days. One class is real: **9BTI DS** (BTI Data Science, Semester IX) has
 its actual subjects and teachers, and must come in at most 3 days a week.
 It takes part in the BTI year-5 open elective like everyone else.
@@ -170,7 +177,7 @@ auth.py           sign-in and roles
 sync.py           sheet edit inbox and re-upload diff
 sheet_script.gs   script to paste into the Google Sheet
 theme.py          blue, red and black styling
-tests/            94 tests; run with: python -m pytest tests
+tests/            98 tests; run with: python -m pytest tests
 ```
 
 ## OR-Tools will not load on Windows
