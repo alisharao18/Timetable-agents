@@ -42,3 +42,24 @@ def test_real_class_gets_at_most_3_days_in_a_generated_timetable(engine):
         if p.groups[leaf]["parent"]:
             days = {r["day"] for r in rows if r["group_id"] in (leaf, p.groups[leaf]["parent"])}
             assert 1 <= len(days) <= 3
+
+
+def test_full_college_has_other_programmes_and_electives(engine):
+    f = sample_data.make_frames(engine, 0, 1.0)
+    g = f["ClassGroups"]
+    progs = set(g[g["parent_code"] == ""]["programme"])
+    assert {"Diploma", "M.Tech", "PhD"} <= progs
+    el = f["Electives"]
+    oe = el[el["block"].str.startswith("OE ")]
+    assert set(oe["block"]) >= {"OE V B.Tech", "OE VII B.Tech"}
+    assert all(len(c.split(",")) > 1 for c in oe["class_groups"])      # spans many divisions
+    assert (el["block"].str.startswith("DE ")).any()
+
+
+def test_even_term_numbers_semesters_and_the_real_class(engine):
+    import semester
+    semester.save(engine, term="Even")
+    g = sample_data.make_frames(engine, 0, 0.12)["ClassGroups"]
+    codes = set(g["code"])
+    assert "10BTI DS" in codes and "9BTI DS" not in codes
+    assert any(c.startswith("2B ") for c in codes) and not any(c.startswith("1B ") for c in codes)

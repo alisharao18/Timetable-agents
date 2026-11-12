@@ -7,6 +7,10 @@ Every programme runs all the years it has in A.Y. 2026-27:
   MBA Tech  5 years (year 1 likewise)
   BTI       years 4, 5 and 6 only: admissions have stopped, last batch ends 2029
   MCA       2 years
+  Diploma   3 years;  M.Tech  2 years;  PhD coursework  1 year
+Senior cohorts share an open-elective block across departments, and final-
+year B.Tech Data Science has a department elective. Semester numbers follow
+the term in the semester settings (Odd: I, III, V ...; Even: II, IV, VI ...).
 
 One class is real: 9BTI DS (BTI Data Science, year 5), with the subjects and
 teachers from its actual timetable, and a must-have limit of 3 days a week.
@@ -17,11 +21,22 @@ import pandas as pd
 from sqlalchemy import insert
 
 import db
+import semester
 import templates
 
-PROGRAMME_YEARS = {"B.Tech": [1, 2, 3, 4], "MBA Tech": [1, 2, 3, 4, 5], "BTI": [4, 5, 6], "MCA": [1, 2]}
-FINAL_YEAR = {"B.Tech": 4, "MBA Tech": 5, "BTI": 6, "MCA": 2}
-CODE_LETTER = {"B.Tech": "B", "MBA Tech": "M", "BTI": "BTI", "MCA": "MCA"}
+PROGRAMME_YEARS = {"B.Tech": [1, 2, 3, 4], "MBA Tech": [1, 2, 3, 4, 5], "BTI": [4, 5, 6], "MCA": [1, 2],
+                   "Diploma": [1, 2, 3], "M.Tech": [1, 2], "PhD": [1]}
+FINAL_YEAR = {"B.Tech": 4, "MBA Tech": 5, "BTI": 6, "MCA": 2, "Diploma": 3, "M.Tech": 2, "PhD": 1}
+CODE_LETTER = {"B.Tech": "B", "MBA Tech": "M", "BTI": "BTI", "MCA": "MCA", "Diploma": "D",
+               "M.Tech": "MT", "PhD": "PhD"}
+DIPLOMA = ["Computer", "Mechanical", "EXTC"]          # departments that run a diploma
+MTECH = ["Data Science", "AI"]                        # departments that run an M.Tech
+# open-elective cohorts: (programme, year) whose divisions choose from one shared block
+OE_COHORTS = [("B.Tech", 3), ("B.Tech", 4), ("MBA Tech", 4), ("BTI", 5)]
+OE_SUBJECTS = ["Design Thinking", "Financial Literacy", "Psychology", "German", "Japanese",
+               "Indian Knowledge Systems", "Creative Writing", "Photography", "Entrepreneurship",
+               "Public Policy", "Sustainable Development", "Music Appreciation", "Digital Marketing",
+               "Business Analytics", "Film Studies", "Law for Engineers"]
 
 # department, short code, divisions per year in B.Tech, MBA Tech, BTI
 DEPARTMENTS = [
@@ -99,21 +114,25 @@ def _size_name(scale):
 def _divisions():
     """Yield (department of the class, branch dept, short, programme, year, n_div)."""
     for dept, short, n_b, n_m, n_bti in DEPARTMENTS:
-        for prog, n in (("B.Tech", n_b), ("MBA Tech", n_m), ("BTI", n_bti)):
+        for prog, n in (("B.Tech", n_b), ("MBA Tech", n_m), ("BTI", n_bti),
+                        ("Diploma", int(dept in DIPLOMA)), ("M.Tech", int(dept in MTECH))):
             if not n:
                 continue
             for year in PROGRAMME_YEARS[prog]:
-                owner = "First Year" if year == 1 else dept
+                owner = "First Year" if year == 1 and prog in ("B.Tech", "MBA Tech") else dept
                 yield owner, dept, short, prog, year, n
     for year in PROGRAMME_YEARS["MCA"]:
         yield "MCA", "MCA", "", "MCA", year, 1
+    yield "Research", "Research", "", "PhD", 1, 1
 
 
 def make_frames(engine, seed=0, scale=1.0):
     rng = random.Random(seed)
+    sem = semester.get(engine)
     size = _size_name(scale)
-    keep = None if size == "full" else set(SIZES[size]) | {"MCA"} if size != "tiny" else set(SIZES[size])
-    groups, load, gprefs, teachers, tprefs, depts = [], [], [], [], [], []
+    keep = None if size == "full" else set(SIZES[size]) | {"MCA", "Research"} if size != "tiny" else set(SIZES[size])
+    groups, load, gprefs, teachers, tprefs, depts, electives = [], [], [], [], [], [], []
+    cohort = {}                                              # (programme, year) -> [(code, size)]
 
     def add_dept(name):
         if name not in depts:
@@ -123,31 +142,62 @@ def make_frames(engine, seed=0, scale=1.0):
         if keep is not None and branch not in keep:
             continue
         n_div = n_div if size == "full" else 1
-        sem = 2 * year - 1                                   # odd semester: 1, 3, 5, ...
+        num = semester.sem_number(sem, year)
         for d in range(n_div):
-            code = f"{sem}{CODE_LETTER[prog]}" + (f" {short}" if short else "") + \
+            code = f"{num}{CODE_LETTER[prog]}" + (f" {short}" if short else "") + \
                    (f" {chr(65 + d)}" if n_div > 1 else "")
             add_dept(owner)
-            if code == REAL_CODE:
-                _add_real(groups, load, gprefs, owner, prog, year)
+            if code == REAL_CODE or (prog == "BTI" and branch == "Data Science" and year == 5):
+                _add_real(groups, load, gprefs, owner, prog, year, code)
+                cohort.setdefault((prog, year), []).append((code, REAL_SIZE))
                 continue
-            div_size = rng.randint(54, 62)
+            if prog == "PhD":
+                groups.append([code + " Coursework", owner, prog, year, 12, ""])
+                load += [[code + " Coursework", "Research Methodology", owner, 3, "lecture", ""],
+                         [code + " Coursework", "Research and Publication Ethics", owner, 2, "lecture", ""]]
+                gprefs.append([code + " Coursework", "", 2, "yes", 9, 17, "no"])
+                continue
+            small = prog in ("M.Tech",)
+            div_size = rng.randint(18, 24) if small else rng.randint(40, 50) if prog == "Diploma" \
+                else rng.randint(54, 62)
             groups.append([code, owner, prog, year, div_size, ""])
-            b1 = div_size // 2
-            for b, bs in (("B1", b1), ("B2", div_size - b1)):
-                groups.append([f"{code}-{b}", owner, prog, year, bs, code])
-            pool = SUBJECT_POOLS["First Year" if year == 1 else branch]
+            cohort.setdefault((prog, year), []).append((code, div_size))
+            if not small:
+                b1 = div_size // 2
+                for b, bs in (("B1", b1), ("B2", div_size - b1)):
+                    groups.append([f"{code}-{b}", owner, prog, year, bs, code])
+            pool = SUBJECT_POOLS["First Year" if year == 1 and prog in ("B.Tech", "MBA Tech") else branch]
             subs = rng.sample(pool, 4)
             if prog == "MBA Tech" and year >= 3:
                 subs.append(rng.choice(MANAGEMENT))
             else:
                 subs.append(rng.choice([s for s in pool if s not in subs]))
+            if prog == "B.Tech" and branch == "Data Science" and year == 4:
+                subs = subs[:4]                                  # one subject becomes an elective
+                electives += [[f"DE {code}", code, title, f"Prof. DS E{i + 1}", div_size // 2 + 1, 3,
+                               "lecture", ""] for i, title in enumerate(["Natural Language Processing",
+                                                                          "Computer Vision"])]
             for s in subs:
                 load.append([code, s, owner, 3, "lecture", ""])
             for s in subs[:3]:
-                for b in ("B1", "B2"):
-                    load.append([f"{code}-{b}", f"{s} Lab", owner, 2, "lab", "COMPUTER"])
+                for b in (("B1", "B2") if not small else ("",)):
+                    load.append([f"{code}-{b}" if b else code, f"{s} Lab", owner, 2, "lab", "COMPUTER"])
             gprefs.append(_class_prefs(rng, prog, year, code))
+
+    # open electives: every division of a senior cohort chooses from one shared block
+    n_oe = 0
+    for prog, year in OE_COHORTS:
+        members = cohort.get((prog, year), [])
+        if len(members) < 2:
+            continue
+        total = sum(sz for _, sz in members)
+        n_opt = max(2, -(-total // 60))
+        name = f"OE {semester.roman(semester.sem_number(sem, year))} {prog}"
+        codes = ",".join(c for c, _ in members)
+        for i in range(n_opt):
+            electives.append([name, codes, OE_SUBJECTS[i % len(OE_SUBJECTS)], f"Prof. OE {i + 1}",
+                              -(-total // n_opt), 2, "lecture", ""])
+        n_oe = max(n_oe, n_opt)
 
     # stand-in teachers: enough per department that nobody exceeds ~13 hours a week
     by_dept = {}
@@ -169,16 +219,22 @@ def make_frames(engine, seed=0, scale=1.0):
             roll = rng.random()
             tprefs.append([n, "Sat" if roll < 0.5 else (rng.choice(["Mon", "Fri"]) if roll < 0.6 else ""),
                            "", 5 if roll < 0.8 else 4, rng.choice(["morning", "afternoon", ""]), "no"])
-    if any(g[0] == REAL_CODE for g in groups):
+    if any(g[0] == _real_code(sem) for g in groups):
         for name in sorted({t for _, t, _, _, _ in REAL_LOAD}):
             teachers.append([name, "Data Science"])
+    if n_oe:
+        add_dept("Humanities and Management")
+        teachers += [[f"Prof. OE {i + 1}", "Humanities and Management"] for i in range(n_oe)]
+    if any(e[0].startswith("DE ") for e in electives):
+        teachers += [["Prof. DS E1", "Data Science"], ["Prof. DS E2", "Data Science"]]
 
     f = lambda name, rows: pd.DataFrame(rows, columns=templates.SHEETS[name][0])
     return {"Departments": f("Departments", [[d] for d in depts]),
             "DepartmentRooms": f("DepartmentRooms", []),
             "ClassGroups": f("ClassGroups", groups), "Teachers": f("Teachers", teachers),
             "TeachingLoad": f("TeachingLoad", load), "ClassPreferences": f("ClassPreferences", gprefs),
-            "TeacherPreferences": f("TeacherPreferences", tprefs)}
+            "TeacherPreferences": f("TeacherPreferences", tprefs),
+            "Electives": f("Electives", electives)}
 
 
 def _class_prefs(rng, prog, year, code):
@@ -197,15 +253,20 @@ def _class_prefs(rng, prog, year, code):
             17 if senior else 18, "no"]
 
 
-def _add_real(groups, load, gprefs, owner, prog, year):
-    groups.append([REAL_CODE, owner, prog, year, REAL_SIZE, ""])
+def _real_code(sem):
+    """The real class is BTI Data Science year 5: 9BTI DS in an Odd term, 10BTI DS in an Even one."""
+    return f"{semester.sem_number(sem, 5)}BTI DS"
+
+
+def _add_real(groups, load, gprefs, owner, prog, year, code=REAL_CODE):
+    groups.append([code, owner, prog, year, REAL_SIZE, ""])
     for b in ("B1", "B2"):
-        groups.append([f"{REAL_CODE}-{b}", owner, prog, year, REAL_SIZE // 2, REAL_CODE])
+        groups.append([f"{code}-{b}", owner, prog, year, REAL_SIZE // 2, code])
     for subject, teacher, hours, kind, who in REAL_LOAD:
-        target = REAL_CODE if who == "div" else f"{REAL_CODE}-{who}"
+        target = code if who == "div" else f"{code}-{who}"
         load.append([target, subject, teacher, hours, kind, "COMPUTER" if kind == "lab" else ""])
     # at most 3 days a week, and that is a must
-    gprefs.append([REAL_CODE, "", 3, "yes", 8, 18, "yes"])
+    gprefs.append([code, "", 3, "yes", 8, 18, "yes"])
 
 
 def make_college(engine, seed=0, scale=1.0):
