@@ -165,7 +165,7 @@ class Board:
     def place(self, sid, d, h, room):
         s = self.sess[sid]
         self.time[sid], self.room[sid] = (d, h), room
-        if s["kind"] == "lecture" and self.p.root(s["group"]) not in self.home:
+        if s["kind"] == "lecture" and not s.get("block") and self.p.root(s["group"]) not in self.home:
             self.home[self.p.root(s["group"])] = room
             self.home_count[room] += 1
         for k in range(s["dur"]):

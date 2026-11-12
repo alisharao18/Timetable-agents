@@ -20,9 +20,12 @@ except Exception:
 import agents
 import auth
 import db
+import editor
 import finder
 import importer
+import pdfs
 import sample_data
+import semester
 import solver
 import sync
 import templates
@@ -102,9 +105,10 @@ inbox = sync.process_inbox(engine)                        # apply any waiting sh
 
 PAGES = ["Find a room", "Timetables", "Bookings"]
 if auth.can(role, "import"):
-    PAGES += ["Data", "Generate timetable", "Users"]
+    PAGES += ["Data", "Generate timetable", "Edit timetable", "Users"]
 with st.sidebar:
     st.markdown("### MPSTME Timetable")
+    st.caption(semester.label(semester.get(engine)))
     page = st.radio("Go to", PAGES, label_visibility="collapsed")
     st.divider()
     st.caption(f"Signed in as\n\n**{user['email']}**\n\n{role.title()}"
@@ -234,6 +238,16 @@ def page_timetables():
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     d3.download_button("Download full list (CSV)", views.flat(engine, f).to_csv(index=False),
                        "timetable_full.csv", "text/csv")
+    if by in ("student", "teacher"):
+        st.markdown("**Printable sheets in the college format**")
+        p1, p2 = st.columns(3)[:2]
+        one = pdfs.class_pdf(engine, key) if by == "student" else pdfs.teacher_pdf(engine, key)
+        p1.download_button(f"Download PDF for {key}", one, f"{key}.pdf", "application/pdf")
+        if p2.button(f"Prepare all {by_label.lower()} sheets (PDF)"):
+            with st.spinner("Building one page per " + by_label.lower() + "..."):
+                S["_pdf"] = (by, pdfs.all_pdf(engine, by))
+        if S.get("_pdf", (None,))[0] == by:
+            p2.download_button("Download PDF (all)", S["_pdf"][1], f"timetables_{by}.pdf", "application/pdf")
 
 
 # ------------------------------------------------------------------ bookings
@@ -379,6 +393,49 @@ def page_data():
             st.dataframe(ed[ed["status"] == "rejected"] if only else ed, width="stretch", hide_index=True)
 
     with t5:
+        sem = semester.get(engine)
+        st.markdown("**Semester**")
+        st.caption("Used for semester numbers, the importer's year and the PDF headers.")
+        with st.form("semester"):
+            a1, a2, a3, a4 = st.columns(4)
+            ay = a1.text_input("Academic year", sem["academic_year"], help="For example 2026-27")
+            term = a2.selectbox("Term", ["Odd", "Even"], index=0 if sem["term"] == "Odd" else 1)
+            wef = a3.text_input("With effect from", sem["wef"], placeholder="e.g. 20 July 2026")
+            campus = a4.text_input("Campus", sem["campus"])
+            if st.form_submit_button("Save semester settings"):
+                try:
+                    semester.save(engine, academic_year=ay, term=term, wef=wef, campus=campus)
+                    flash("Semester settings saved.")
+                except ValueError as err:
+                    st.error(str(err))
+        with st.expander("Start a new semester"):
+            st.write("This archives the published timetable (you can download it below at any time), then "
+                     "clears generated and hand-edited classes and all locks. Rooms, bookings, classes, "
+                     "teachers and the teaching load are kept: upload the new semester's load afterwards.")
+            with st.form("new_sem"):
+                n1, n2, n3 = st.columns(3)
+                nay = n1.text_input("New academic year", sem["academic_year"])
+                nterm = n2.selectbox("New term", ["Even", "Odd"], index=0 if sem["term"] == "Odd" else 1)
+                nwef = n3.text_input("With effect from", "")
+                sure = st.checkbox("I understand the current timetable will be archived and cleared")
+                if st.form_submit_button("Start new semester", type="primary"):
+                    if not sure:
+                        st.error("Tick the box to confirm.")
+                    else:
+                        try:
+                            flash(semester.start_new(engine, nay, nterm, nwef, user["email"]))
+                        except ValueError as err:
+                            st.error(str(err))
+        arch = semester.archives(engine)
+        if len(arch):
+            st.markdown("**Archived timetables**")
+            pick = st.selectbox("Archive", arch["id"].tolist(),
+                                format_func=lambda i: f"{arch.set_index('id').at[i, 'label']} "
+                                                      f"(saved {pd.Timestamp(arch.set_index('id').at[i, 'created_at']):%d %b %Y})")
+            st.download_button("Download archived timetable (Excel)", semester.archive_excel(engine, int(pick)),
+                               f"archive_{pick}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.divider()
         cur = int(float(db.get_setting(engine, "canteen_limit", 0) or 0))
         lim = st.number_input("Canteen limit: most students who should be at lunch in the same hour (0 = not set)",
                               min_value=0, max_value=20000, value=cur, step=50)
@@ -412,11 +469,13 @@ def page_generate():
         return
     p = solver.load_problem(engine)
     hours = sum(s["dur"] for s in p.sessions)
-    m = st.columns(4)
+    m = st.columns(6)
     m[0].metric("Class hours a week", hours)
     m[1].metric("Class groups", len(p.groups))
     m[2].metric("Teachers", len(p.teachers))
     m[3].metric("Rooms and labs", len(p.rooms))
+    m[4].metric("Elective blocks", len({s["block"] for s in p.sessions if s.get("block")}))
+    m[5].metric("Locked classes", sum(1 for s in p.sessions if s.get("lock")))
     problems = solver.check_feasible(p)
     if problems:
         st.error(f"{len(problems)} thing(s) make a complete timetable impossible. You can still generate; "
@@ -463,13 +522,16 @@ def page_generate():
                 {"Class": p.groups[u["session"]["group"]]["code"], "Subject": u["session"]["subject"],
                  "Teacher": p.teachers[u["session"]["teacher"]]["name"], "Why": u["reason"]} for u in unplaced],
                 score=validate.score(p, rows), lunch=validate.lunch_plan(p, rows)[0],
-                students=sum(p.groups[g]["size"] for g in p.leaves()), limit=p.canteen_limit)
+                students=sum(p.groups[g]["size"] for g in p.leaves()), limit=p.canteen_limit,
+                lock_notes=list(p.lock_notes))
             status.update(label="Done", state="complete", expanded=False)
 
     d = S.get("draft")
     if not d:
         return
     st.subheader("Result (draft, not yet published)")
+    for note in d.get("lock_notes", []):
+        st.warning(note)
     if d["errors"]:
         st.error(f"The audit found {len(d['errors'])} rule violation(s). This is a bug; do not publish.")
         st.dataframe(pd.DataFrame({"Violation": d["errors"]}), width="stretch", hide_index=True)
@@ -525,6 +587,83 @@ def page_generate():
         flash("Timetable published. See it under Timetables.")
 
 
+# ------------------------------------------------------------------ edit (admin)
+def page_edit():
+    header("Edit timetable", "Move or swap a class by hand, and lock classes so regenerating keeps them.")
+    if not db.q(engine, "select 1 from placements where session_key is not null limit 1"):
+        st.info("Publish a timetable first (Generate timetable page).")
+        return
+    p, b = editor.current(engine)
+    c1, c2 = st.columns([1, 3])
+    by = c1.radio("Find classes by", ["Class", "Teacher"], horizontal=True)
+    if by == "Class":
+        names = sorted(v["code"] for v in p.groups.values())
+        key = c2.selectbox("Class", names)
+        items = editor.sessions(p, b, group_code=key)
+    else:
+        names = sorted(v["name"] for v in p.teachers.values())
+        key = c2.selectbox("Teacher", names)
+        items = editor.sessions(p, b, teacher=key)
+    if not items:
+        st.info("No classes for this selection.")
+        return
+    labels = {i["key"]: i["text"] for i in items}
+    sel = st.selectbox("Class session", list(labels), format_func=labels.get)
+    item = next(i for i in items if i["key"] == sel)
+
+    tab_move, tab_swap, tab_lock = st.tabs(["Move", "Swap", "Lock"])
+    with tab_move:
+        if not item["movable"]:
+            st.info("This is part of an elective block: all its options run together, so it cannot be moved "
+                    "alone. Change the Electives tab and generate again.")
+        elif item["locked"]:
+            st.info("This class is locked. Unlock it on the Lock tab to move it.")
+        else:
+            opts = [o for o in editor.options(p, b, sel) if not o["current"]]
+            if not opts:
+                st.warning("There is no other time this class could go without breaking a rule.")
+            else:
+                st.caption(f"{len(opts)} legal time(s). Every one keeps the students, the teacher and the room "
+                           "clash-free, keeps a lunch hour and respects campus days and must-have limits.")
+                o_lab = {i: f"{o['day']} {hour_label(o['hour'])} · {len(o['rooms'])} free room(s)"
+                         for i, o in enumerate(opts)}
+                oi = st.selectbox("New time", list(o_lab), format_func=o_lab.get)
+                room = st.selectbox("Room", opts[oi]["rooms"],
+                                    help="Rooms of this class's department come first, then smallest that fits.")
+                if st.button("Move here", type="primary"):
+                    ok, msg = editor.move(engine, sel, opts[oi]["day"], opts[oi]["hour"], room, user["email"])
+                    flash(msg, "success" if ok else "error")
+    with tab_swap:
+        others = {i["key"]: i["text"] for i in items if i["key"] != sel and i["movable"] and not i["locked"]}
+        if not item["movable"] or item["locked"] or not others:
+            st.info("Nothing to swap with here.")
+        else:
+            other = st.selectbox("Swap times with", list(others), format_func=others.get)
+            if st.button("Swap"):
+                ok, msg = editor.swap(engine, sel, other, user["email"])
+                flash(msg, "success" if ok else "error")
+    with tab_lock:
+        st.caption("A locked class keeps its day, time and room when the timetable is generated again.")
+        l1, l2, l3 = st.columns(3)
+        if item["locked"]:
+            if l1.button("Unlock this class"):
+                flash(editor.unlock(engine, [sel], user["email"])[1])
+        elif item["movable"]:
+            if l1.button("Lock this class"):
+                ok, msg = editor.lock(engine, [sel], user["email"])
+                flash(msg, "success" if ok else "error")
+        if l2.button(f"Lock everything for {key}"):
+            ok, msg = editor.lock(engine, [i["key"] for i in items], user["email"])
+            flash(msg, "success" if ok else "error")
+        if l3.button(f"Unlock everything for {key}"):
+            flash(editor.unlock(engine, [i["key"] for i in items], user["email"])[1])
+        locks = editor.all_locks(engine)
+        st.markdown(f"**All locked classes ({len(locks)})**")
+        if len(locks):
+            locks["Hour"] = locks["Hour"].map(hour_label)
+            st.dataframe(locks, width="stretch", hide_index=True)
+
+
 # ------------------------------------------------------------------ users (admin)
 def page_users():
     header("Users", "Who can sign in, and what they can do.")
@@ -560,4 +699,5 @@ def page_users():
 
 
 {"Find a room": page_find, "Timetables": page_timetables, "Bookings": page_bookings,
- "Data": page_data, "Generate timetable": page_generate, "Users": page_users}[page]()
+ "Data": page_data, "Generate timetable": page_generate, "Edit timetable": page_edit,
+ "Users": page_users}[page]()
