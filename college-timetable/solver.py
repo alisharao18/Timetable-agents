@@ -187,10 +187,14 @@ def check_feasible(p):
                        f"available for {max(free - days, 0)} (after a daily lunch hour).")
     for g in p.leaves():
         need = fam_hours[g] + (fam_hours[p.groups[g]["parent"]] if p.groups[g]["parent"] else 0)
-        have = len(p.group_days(g)) * (len(TT_HOURS) - 1)
+        n_days = len(p.group_days(g))
+        gp = p.pref_of(g)
+        if gp.get("hard") and gp.get("max_days"):
+            n_days = min(n_days, gp["max_days"])
+        have = n_days * (len(TT_HOURS) - 1)
         if need > have:
             out.append(f"{p.groups[g]['code']} has {need} hours of classes a week but only "
-                       f"{have} hours on campus (after a daily lunch hour).")
+                       f"{have} hours on campus in {n_days} day(s) (after a daily lunch hour).")
     for kind, label in (("lecture", "classroom"), ("lab", "lab")):
         need = sum(s["dur"] for s in p.sessions if s["kind"] == kind)
         rooms = [r for r in p.rooms if r["kind"] == label]
@@ -258,7 +262,11 @@ def construct(p, seed=0):
     t_load = defaultdict(int)
     for s in p.sessions:
         t_load[s["teacher"]] += s["dur"]
-    order = sorted(p.sessions, key=lambda s: (s["kind"] != "lab", len(options[s["id"]]),
+    def day_limited(s):                        # a must-have day limit packs a class tightly
+        gp = p.pref_of(s["group"])
+        return not (gp.get("hard") and gp.get("max_days"))
+
+    order = sorted(p.sessions, key=lambda s: (day_limited(s), s["kind"] != "lab", len(options[s["id"]]),
                                               -t_load[s["teacher"]],
                                               -s["size"], rng.random()))
 

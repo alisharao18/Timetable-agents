@@ -60,6 +60,30 @@ maximum days per week, Saturday, earliest and latest hours, teacher morning
 or afternoon, compact days. Mark `must = yes` to make a row's preferences
 unbreakable.
 
+A must-have `max_days` applies to the whole class: the division and its lab
+batches together come in on no more than that many days.
+
+## Sample college
+
+**Data > Classes and teachers > Load sample college** fills in a made-up
+teaching load on the real rooms, so the generator can be tried before the
+committee's sheets exist. Every programme runs all the years it has in
+A.Y. 2026-27, odd semester:
+
+| Programme | Years | Notes |
+|---|---|---|
+| B.Tech | 1 to 4 | year 1 belongs to the First Year department |
+| MBA Tech | 1 to 5 | year 1 likewise; management subjects from year 3 |
+| BTI | 4 to 6 | admissions stopped; the last batch finishes in 2029 |
+| MCA | 1 to 2 | |
+
+Older years ask for fewer days and no Saturday; final years ask for at most
+4 days. One class is real: **9BTI DS** (BTI Data Science, Semester IX) has
+its actual subjects and teachers, and must come in at most 3 days a week.
+Open electives are left out because they run across departments.
+Sizes: Small (Computer and Data Science), Medium (five departments, one
+division each), Full college (all departments, 97 divisions).
+
 Lunch is staggered by giving each division a reserved hour (12-1, 1-2 or
 2-3) in rotation, so about a third of students eat in each hour.
 

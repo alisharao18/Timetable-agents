@@ -166,3 +166,46 @@ def test_without_ortools_improve_is_skipped_and_timetable_stays_valid(monkeypatc
     assert solver.improve(p, b, seconds=5) == []
     rows = solver.board_rows(p, b)
     assert rows == before and validate.audit(p, rows) == []
+
+
+def _days_per_leaf(p, rows):
+    days = {}
+    for leaf in p.leaves():
+        par = p.groups[leaf]["parent"]
+        days[leaf] = {r["day"] for r in rows if r["group_id"] in (leaf, par)}
+    return days
+
+
+def test_must_have_max_days_is_never_broken():
+    """A class that must come at most 2 days: every batch comes on 2 days or fewer,
+    through construction, polish and negotiation, and the audit agrees."""
+    import agents
+    p = tiny()
+    p.gpref[1] = dict(days=[], max_days=2, saturday_ok=True, earliest=None, latest=None, hard=True)
+    b = solver.construct(p)
+    assert len(b.time) == len(p.sessions)
+    rows = solver.board_rows(p, b)
+    assert all(len(d) <= 2 for d in _days_per_leaf(p, rows).values())
+    solver.improve(p, b, seconds=5)
+    rows = solver.board_rows(p, b)
+    rows, _ = agents.negotiate(p, rows, rounds=40, seed=1)
+    assert all(len(d) <= 2 for d in _days_per_leaf(p, rows).values())
+    assert validate.audit(p, rows) == []
+
+
+def test_audit_reports_a_broken_must_have_max_days():
+    p = tiny()
+    b = solver.construct(p)
+    rows = solver.board_rows(p, b)
+    used = max(len(d) for d in _days_per_leaf(p, rows).values())
+    p.gpref[1] = dict(days=[], max_days=used - 1, saturday_ok=True, earliest=None, latest=None, hard=True)
+    assert any("days a week" in e for e in validate.audit(p, rows))
+
+
+def test_too_many_hours_for_a_must_have_day_limit_is_named():
+    p = tiny()
+    p.gpref[1] = dict(days=[], max_days=1, saturday_ok=True, earliest=None, latest=None, hard=True)
+    p.sessions += [dict(id=100 + i, load=9, group=1, teacher=1, subject="Extra", kind="lecture",
+                        dur=1, size=60, lab_type=None) for i in range(4)]
+    msgs = solver.check_feasible(p)
+    assert any("3B IT-B1" in m and "in 1 day(s)" in m for m in msgs)

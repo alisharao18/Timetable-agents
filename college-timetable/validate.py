@@ -79,6 +79,20 @@ def audit(p, rows):
         for d in DAYS:
             if all((t, d, h) in seen_teacher for h in LUNCH_HOURS):
                 errs.append(f"{p.teachers[t]['name']} has no free lunch hour on {d}.")
+
+    # must-have max_days: never more days a week than the limit
+    for root in {p.root(g) for g in p.groups}:       # the division and its batches together
+        gp = p.pref_of(root)
+        if gp.get("hard") and gp.get("max_days"):
+            days = {d for (g, d, _) in seen_group if p.root(g) == root}
+            if len(days) > gp["max_days"]:
+                errs.append(f"{code(root)} comes {len(days)} days a week; it must be at most {gp['max_days']}.")
+    for t, tp in p.tpref.items():
+        if tp.get("hard") and tp.get("max_days"):
+            days = {d for (x, d, _) in seen_teacher if x == t}
+            if len(days) > tp["max_days"]:
+                errs.append(f"{p.teachers[t]['name']} teaches {len(days)} days a week; "
+                            f"must be at most {tp['max_days']}.")
     return errs
 
 

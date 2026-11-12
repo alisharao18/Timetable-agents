@@ -37,6 +37,23 @@ class Board:
     def leaf_hours(self, leaf, d):
         return [h for h in TT_HOURS if self.leaf_busy(leaf, d, h)]
 
+    def days_ok(self, s, d):
+        """A must-have max_days (class or teacher) is never broken: placing s
+        on day d may not add a new day beyond the limit."""
+        gp = self.p.pref_of(s["group"])
+        if gp.get("hard") and gp.get("max_days"):
+            # the whole class (division and its batches) shares one set of days
+            leaves = self.leaves_of(self.p.root(s["group"]))
+            used = [x for x in DAYS if any(self.leaf_hours(leaf, x) for leaf in leaves)]
+            if d not in used and len(used) >= gp["max_days"]:
+                return False
+        tp = self.p.tpref.get(s["teacher"], {})
+        if tp.get("hard") and tp.get("max_days"):
+            used = [x for x in DAYS if any((s["teacher"], x, h) in self.t_busy for h in TT_HOURS)]
+            if d not in used and len(used) >= tp["max_days"]:
+                return False
+        return True
+
     def candidates(self, s):
         key = (s["kind"], (s["lab_type"] or "").upper(), s["size"])
         if key not in self._rooms:
@@ -103,6 +120,10 @@ class Board:
             self._count = count
         if s["load"] not in self._cap:
             days = sum(any(self.p.hard_ok(s, d, h) for h in TT_HOURS) for d in DAYS)
+            gp, tp = self.p.pref_of(s["group"]), self.p.tpref.get(s["teacher"], {})
+            for pref in (gp, tp):                      # a must-have day limit shrinks the week
+                if pref.get("hard") and pref.get("max_days"):
+                    days = min(days, pref["max_days"])
             n = self._count[s["load"]]
             self._cap[s["load"]] = max(1, -(-n // max(1, days)))
         return self._cap[s["load"]]
@@ -114,6 +135,8 @@ class Board:
         """None if s may be placed at (d, h) [in `room`], else the reason."""
         if not self.p.hard_ok(s, d, h):
             return "outside the hours the class or teacher allows"
+        if not self.days_ok(s, d):
+            return "it would bring the class or teacher in on more days than they must"
         if self.conflicts(s, d, h):
             return "the teacher or the students already have a class then"
         if not self.subject_ok(s, d):

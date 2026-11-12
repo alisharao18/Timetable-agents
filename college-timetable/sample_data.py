@@ -1,6 +1,16 @@
 """A made-up but college-sized teaching load, for trying the generator
 before the real load sheet exists. Uses the rooms already in the database
-(from the workbook import); creates stand-in rooms if there are none."""
+(from the workbook import); creates stand-in rooms if there are none.
+
+Every programme runs all the years it has in A.Y. 2026-27:
+  B.Tech    4 years (year 1 is taught by the First Year department)
+  MBA Tech  5 years (year 1 likewise)
+  BTI       years 4, 5 and 6 only: admissions have stopped, last batch ends 2029
+  MCA       2 years
+
+One class is real: 9BTI DS (BTI Data Science, year 5), with the subjects and
+teachers from its actual timetable, and a must-have limit of 3 days a week.
+"""
 import random
 
 import pandas as pd
@@ -9,21 +19,63 @@ from sqlalchemy import insert
 import db
 import templates
 
-# department, programme, first sem-year, last year, divisions per year
-PROGRAMMES = [
-    ("First Year", "B.Tech", 1, 1, 14), ("First Year", "MBA Tech", 1, 1, 5),
-    ("Computer", "B.Tech", 2, 4, 3), ("Computer", "BTI", 4, 6, 3), ("Computer", "MBA Tech", 2, 3, 2),
-    ("IT", "B.Tech", 2, 4, 1), ("IT", "BTI", 4, 6, 1), ("IT", "MBA Tech", 2, 3, 1),
-    ("Data Science", "B.Tech", 2, 4, 1), ("Data Science", "BTI", 4, 6, 1), ("Data Science", "MBA Tech", 2, 3, 1),
-    ("AI", "B.Tech", 2, 4, 1), ("AI", "MBA Tech", 2, 3, 1),
-    ("Mechanical", "B.Tech", 2, 4, 1), ("Mechanical", "BTI", 4, 6, 1),
-    ("Mechatronics", "B.Tech", 2, 4, 1), ("Civil", "B.Tech", 2, 4, 1), ("EXTC", "B.Tech", 2, 4, 1),
-    ("Technology Management", "MBA Tech", 4, 5, 4), ("MCA", "MCA", 1, 2, 1),
+PROGRAMME_YEARS = {"B.Tech": [1, 2, 3, 4], "MBA Tech": [1, 2, 3, 4, 5], "BTI": [4, 5, 6], "MCA": [1, 2]}
+FINAL_YEAR = {"B.Tech": 4, "MBA Tech": 5, "BTI": 6, "MCA": 2}
+CODE_LETTER = {"B.Tech": "B", "MBA Tech": "M", "BTI": "BTI", "MCA": "MCA"}
+
+# department, short code, divisions per year in B.Tech, MBA Tech, BTI
+DEPARTMENTS = [
+    ("Computer", "CS", 3, 2, 1), ("IT", "IT", 2, 1, 1), ("Data Science", "DS", 2, 1, 1),
+    ("AI", "AI", 1, 1, 0), ("Mechanical", "ME", 1, 1, 1), ("Mechatronics", "MX", 1, 0, 0),
+    ("Civil", "CI", 1, 0, 0), ("EXTC", "EXTC", 1, 1, 0),
 ]
-SUBJECTS = ["Mathematics", "Programming", "Systems", "Networks", "Design", "Analytics",
-            "Management", "Electronics", "Mechanics", "Ethics"]
-SHORT = {"First Year": "FY", "Computer": "CS", "Data Science": "DS", "Mechanical": "ME",
-         "Mechatronics": "MX", "Civil": "CI", "Technology Management": "TM"}
+# which departments each sample size uses (every programme and year is always present)
+SIZES = {"tiny": ["Data Science"], "small": ["Computer", "Data Science"],
+         "medium": ["Computer", "IT", "Data Science", "AI", "Mechanical"]}
+
+COMPUTING = ["Data Structures", "Operating Systems", "Computer Networks", "Database Systems",
+             "Machine Learning", "Software Engineering", "Cloud Computing", "Web Programming",
+             "Statistics", "Deep Learning", "Big Data Analytics", "Cyber Security"]
+SUBJECT_POOLS = {
+    "Computer": COMPUTING, "IT": COMPUTING, "Data Science": COMPUTING, "AI": COMPUTING,
+    "Mechanical": ["Thermodynamics", "Fluid Mechanics", "Machine Design", "Manufacturing",
+                   "Heat Transfer", "CAD/CAM", "Industrial Engineering", "Vibrations"],
+    "Mechatronics": ["Control Systems", "Robotics", "Sensors and Actuators", "Embedded Systems",
+                     "Hydraulics and Pneumatics", "Machine Design", "PLC and SCADA"],
+    "Civil": ["Structural Analysis", "Surveying", "Geotechnical Engineering", "Concrete Technology",
+              "Transportation Engineering", "Water Resources", "Construction Management"],
+    "EXTC": ["Signals and Systems", "Digital Electronics", "Communication Systems", "VLSI Design",
+             "Microprocessors", "Antennas and Propagation", "Digital Signal Processing"],
+    "First Year": ["Engineering Mathematics", "Engineering Physics", "Engineering Chemistry",
+                   "Programming in C", "Engineering Drawing", "Communication Skills", "Basic Electrical"],
+    "MCA": ["Java Programming", "Data Structures", "Database Systems", "Web Technologies",
+            "Python Programming", "Software Testing"],
+}
+MANAGEMENT = ["Marketing Management", "Financial Management", "Operations Management",
+              "Managerial Economics", "Organisational Behaviour"]
+
+# The real 9BTI DS (Semester IX) timetable: subject, teacher, hours, type, who
+REAL_CODE = "9BTI DS"
+REAL_SIZE = 60
+REAL_LOAD = [
+    ("Applied Time Series Analysis", "Prof. Saurabh Pandit", 2, "lecture", "div"),
+    ("Applied Time Series Analysis Lab", "Prof. Saurabh Pandit", 2, "lab", "B1"),
+    ("Applied Time Series Analysis Lab", "Prof. Saurabh Pandit", 2, "lab", "B2"),
+    ("Foundations of Machine Learning", "Dr. Siba Panda", 3, "lecture", "div"),
+    ("Foundations of Machine Learning Lab", "Dr. Siba Panda", 2, "lab", "B1"),
+    ("Foundations of Machine Learning Lab", "Dr. Siba Panda", 2, "lab", "B2"),
+    ("Applied AI and Agentic Systems", "Dr. Vinita Mane", 2, "lecture", "div"),
+    ("Applied AI and Agentic Systems Lab", "Dr. Vinita Mane", 2, "lab", "B1"),
+    ("Applied AI and Agentic Systems Lab", "Dr. Vinita Mane", 2, "lab", "B2"),
+    ("Data Driven Program Analysis Lab", "Prof. Atharva Rode", 2, "lab", "B1"),
+    ("Data Driven Program Analysis Lab", "Dr. JayKrishna Joshi", 2, "lab", "B2"),
+    ("Virtualization and Cloud Computing", "Prof. Soni Bhambar", 2, "lecture", "div"),
+    ("Virtualization and Cloud Computing Lab", "Prof. Soni Bhambar", 2, "lab", "B1"),
+    ("Virtualization and Cloud Computing Lab", "Prof. Soni Bhambar", 2, "lab", "B2"),
+    ("Intro to Modern Application Development", "Prof. Snehee Chheda", 1, "lecture", "div"),
+    ("Intro to Modern Application Development (2)", "Prof. Anish Gharat", 1, "lecture", "div"),
+    ("Modern Application Development Practical", "Prof. Snehee Chheda", 2, "lecture", "div"),
+]
 
 
 def _standin_rooms(engine, n_class, n_lab):
@@ -36,43 +88,77 @@ def _standin_rooms(engine, n_class, n_lab):
         c.execute(insert(db.rooms), rows)
 
 
+def _size_name(scale):
+    if scale >= 1.0:
+        return "full"
+    if scale >= 0.5:
+        return "medium"
+    return "small" if scale >= 0.25 else "tiny"
+
+
+def _divisions():
+    """Yield (department of the class, branch dept, short, programme, year, n_div)."""
+    for dept, short, n_b, n_m, n_bti in DEPARTMENTS:
+        for prog, n in (("B.Tech", n_b), ("MBA Tech", n_m), ("BTI", n_bti)):
+            if not n:
+                continue
+            for year in PROGRAMME_YEARS[prog]:
+                owner = "First Year" if year == 1 else dept
+                yield owner, dept, short, prog, year, n
+    for year in PROGRAMME_YEARS["MCA"]:
+        yield "MCA", "MCA", "", "MCA", year, 1
+
+
 def make_frames(engine, seed=0, scale=1.0):
     rng = random.Random(seed)
+    size = _size_name(scale)
+    keep = None if size == "full" else set(SIZES[size]) | {"MCA"} if size != "tiny" else set(SIZES[size])
     groups, load, gprefs, teachers, tprefs, depts = [], [], [], [], [], []
-    for dept, prog, y0, y1, n_div in PROGRAMMES:
-        if dept not in depts:
-            depts.append(dept)
-        n_div = max(1, round(n_div * scale)) if scale >= 1 or rng.random() < scale * 1.5 else 0
-        for year in range(y0, y1 + 1):
-            for d in range(n_div):
-                code = f"{2 * year - 1}{prog[0] if prog != 'BTI' else 'BTI'} {SHORT.get(dept, dept)}" + \
-                       (f" {chr(65 + d)}" if n_div > 1 else "")
-                if prog == "MBA Tech":
-                    code = code.replace(f"{2*year-1}M", f"{2*year-1}M")
-                if any(g[0] == code for g in groups):
-                    code += f" ({prog})"
-                size = rng.randint(54, 60)
-                groups.append([code, dept, prog, year, size, ""])
-                b1 = size // 2
-                for b, bs in (("B1", b1), ("B2", size - b1)):
-                    groups.append([f"{code}-{b}", dept, prog, year, bs, code])
-                subs = rng.sample(SUBJECTS, 5)
-                for s in subs:
-                    load.append([code, f"{s} {year}", dept, 3, "lecture", ""])
-                for s in subs[:3]:
-                    for b in ("B1", "B2"):
-                        load.append([f"{code}-{b}", f"{s} {year} Lab", dept, 2, "lab", "COMPUTER"])
-                older = year >= 3
-                days = "Mon,Tue,Wed,Thu,Fri" if older and rng.random() < 0.7 else ""
-                gprefs.append([code, days, 4 if older and rng.random() < 0.4 else (5 if older else ""),
-                               "no" if older else "yes", 8, 17 if older else 18, "no"])
-    # teachers: enough per department that nobody exceeds ~14 hours a week
+
+    def add_dept(name):
+        if name not in depts:
+            depts.append(name)
+
+    for owner, branch, short, prog, year, n_div in _divisions():
+        if keep is not None and branch not in keep:
+            continue
+        n_div = n_div if size == "full" else 1
+        sem = 2 * year - 1                                   # odd semester: 1, 3, 5, ...
+        for d in range(n_div):
+            code = f"{sem}{CODE_LETTER[prog]}" + (f" {short}" if short else "") + \
+                   (f" {chr(65 + d)}" if n_div > 1 else "")
+            add_dept(owner)
+            if code == REAL_CODE:
+                _add_real(groups, load, gprefs, owner, prog, year)
+                continue
+            div_size = rng.randint(54, 62)
+            groups.append([code, owner, prog, year, div_size, ""])
+            b1 = div_size // 2
+            for b, bs in (("B1", b1), ("B2", div_size - b1)):
+                groups.append([f"{code}-{b}", owner, prog, year, bs, code])
+            pool = SUBJECT_POOLS["First Year" if year == 1 else branch]
+            subs = rng.sample(pool, 4)
+            if prog == "MBA Tech" and year >= 3:
+                subs.append(rng.choice(MANAGEMENT))
+            else:
+                subs.append(rng.choice([s for s in pool if s not in subs]))
+            for s in subs:
+                load.append([code, s, owner, 3, "lecture", ""])
+            for s in subs[:3]:
+                for b in ("B1", "B2"):
+                    load.append([f"{code}-{b}", f"{s} Lab", owner, 2, "lab", "COMPUTER"])
+            gprefs.append(_class_prefs(rng, prog, year, code))
+
+    # stand-in teachers: enough per department that nobody exceeds ~13 hours a week
     by_dept = {}
     for row in load:
-        by_dept.setdefault(row[2], []).append(row)
+        if row[2] in depts:                                 # real rows already name a teacher
+            by_dept.setdefault(row[2], []).append(row)
     for dept, rows in by_dept.items():
         hours = sum(r[3] for r in rows)
-        names = [f"Prof. {SHORT.get(dept, dept)} {i + 1}" for i in range(max(2, -(-hours // 13)))]
+        tag = {"First Year": "FY", "Data Science": "DS", "Mechanical": "ME", "Mechatronics": "MX",
+               "Civil": "CI", "Computer": "CS"}.get(dept, dept)
+        names = [f"Prof. {tag} {i + 1}" for i in range(max(2, -(-hours // 13)))]
         got = {n: 0 for n in names}
         for r in sorted(rows, key=lambda r: (r[1], r[0])):
             n = min(names, key=lambda n: (got[n], rng.random()))
@@ -83,12 +169,43 @@ def make_frames(engine, seed=0, scale=1.0):
             roll = rng.random()
             tprefs.append([n, "Sat" if roll < 0.5 else (rng.choice(["Mon", "Fri"]) if roll < 0.6 else ""),
                            "", 5 if roll < 0.8 else 4, rng.choice(["morning", "afternoon", ""]), "no"])
+    if any(g[0] == REAL_CODE for g in groups):
+        for name in sorted({t for _, t, _, _, _ in REAL_LOAD}):
+            teachers.append([name, "Data Science"])
+
     f = lambda name, rows: pd.DataFrame(rows, columns=templates.SHEETS[name][0])
     return {"Departments": f("Departments", [[d] for d in depts]),
             "DepartmentRooms": f("DepartmentRooms", []),
             "ClassGroups": f("ClassGroups", groups), "Teachers": f("Teachers", teachers),
             "TeachingLoad": f("TeachingLoad", load), "ClassPreferences": f("ClassPreferences", gprefs),
             "TeacherPreferences": f("TeacherPreferences", tprefs)}
+
+
+def _class_prefs(rng, prog, year, code):
+    """Older years want fewer days and no Saturday; first years come all week."""
+    final = year == FINAL_YEAR[prog]
+    senior = year >= 3
+    if final:
+        max_days = 4
+    elif senior:
+        max_days = 4 if rng.random() < 0.5 else 5
+    else:
+        max_days = ""
+    likes_saturday = (not senior) or rng.random() < 0.2
+    days = "Mon,Tue,Wed,Thu,Fri" if senior and not likes_saturday and rng.random() < 0.6 else ""
+    return [code, days, max_days, "yes" if likes_saturday else "no", 8,
+            17 if senior else 18, "no"]
+
+
+def _add_real(groups, load, gprefs, owner, prog, year):
+    groups.append([REAL_CODE, owner, prog, year, REAL_SIZE, ""])
+    for b in ("B1", "B2"):
+        groups.append([f"{REAL_CODE}-{b}", owner, prog, year, REAL_SIZE // 2, REAL_CODE])
+    for subject, teacher, hours, kind, who in REAL_LOAD:
+        target = REAL_CODE if who == "div" else f"{REAL_CODE}-{who}"
+        load.append([target, subject, teacher, hours, kind, "COMPUTER" if kind == "lab" else ""])
+    # at most 3 days a week, and that is a must
+    gprefs.append([REAL_CODE, "", 3, "yes", 8, 18, "yes"])
 
 
 def make_college(engine, seed=0, scale=1.0):
