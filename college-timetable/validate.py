@@ -16,9 +16,10 @@ def audit(p, rows):
     """-> list of hard-rule violations in plain language ([] = clean)."""
     errs = []
     rooms = {r["id"]: r for r in p.rooms}
-    sess = {f"s{s['id']}": s for s in p.sessions}
+    sess = {p.key_of(s): s for s in p.sessions}
     code = lambda g: p.groups[g]["code"]
     seen_room, seen_teacher, seen_group = defaultdict(list), defaultdict(list), defaultdict(list)
+    slot_of = defaultdict(set)
 
     for key, rs in _sessions(rows).items():
         s = sess.get(key)
@@ -49,10 +50,13 @@ def audit(p, rows):
         if not p.hard_ok(s, d, h):
             errs.append(f"{what} on {d} {h}:00 breaks a fixed rule (hours, campus days, "
                         "teacher availability or a must-have preference).")
+        slot = (s["block"], s["meta"]) if s.get("block") else key   # an elective's options share time
         for r in rs:
             seen_room[r["room_id"], r["day"], r["hour"]].append(what)
             seen_teacher[s["teacher"], r["day"], r["hour"]].append(what)
-            seen_group[s["group"], r["day"], r["hour"]].append(what)
+            for g in p.groups_of(s):
+                seen_group[g, r["day"], r["hour"]].append(what)
+                slot_of[g, r["day"], r["hour"]].add(slot)
             if (r["room_id"], r["day"], r["hour"]) in p.blocked:
                 errs.append(f"{what} on {r['day']} {r['hour']}:00 uses a room that is already booked.")
 
@@ -63,7 +67,7 @@ def audit(p, rows):
         if len(ws) > 1:
             errs.append(f"{p.teachers[t]['name']} is in two places on {d} {h}:00: {', '.join(ws)}.")
     for (g, d, h), ws in seen_group.items():
-        if len(ws) > 1:
+        if len(slot_of[g, d, h]) > 1:
             errs.append(f"{code(g)} has two classes on {d} {h}:00: {', '.join(ws)}.")
         par = p.groups[g]["parent"]
         if par and (par, d, h) in seen_group:
@@ -96,9 +100,23 @@ def audit(p, rows):
     return errs
 
 
+def _expand(p, rows):
+    """Rows as seen by each class: an elective row also keeps every other
+    class in its block busy. Copies carry `_copy` so they are not counted twice."""
+    sess = {p.key_of(s): s for s in p.sessions}
+    out = []
+    for r in rows:
+        out.append(r)
+        s = sess.get(r.get("session_key"))
+        if s and s.get("block"):
+            out += [{**r, "group_id": g, "_copy": True} for g in p.groups_of(s) if g != r["group_id"]]
+    return out
+
+
 def lunch_plan(p, rows):
     """Who eats when. Each class that is on campus picks a free lunch hour;
     classes with a choice go to the emptier hour. -> ({(day, hour): students}, peak share)"""
+    rows = _expand(p, rows)
     busy = defaultdict(set)
     for r in rows:
         busy[r["group_id"], r["day"]].add(r["hour"])
@@ -127,7 +145,8 @@ def lunch_plan(p, rows):
 def score(p, rows):
     """Quality measures (hard rules aside). `penalty` is the single number
     the negotiating agents try to reduce."""
-    sess = {f"s{s['id']}": s for s in p.sessions}
+    sess = {p.key_of(s): s for s in p.sessions}
+    rows = _expand(p, rows)
     starts = {}
     for r in rows:
         k = r["session_key"]
@@ -150,7 +169,7 @@ def score(p, rows):
     busy, t_days = defaultdict(set), defaultdict(set)
     lec_rooms = defaultdict(lambda: defaultdict(int))
     for r in rows:
-        if r.get("kind") == "lecture":
+        if r.get("kind") == "lecture" and not r.get("block"):
             lec_rooms[r["group_id"]][r["room_id"]] += 1
     for r in rows:
         busy[r["group_id"], r["day"]].add(r["hour"])
@@ -173,7 +192,7 @@ def score(p, rows):
     t_over = sum(max(0, len(t_days[t]) - p.tpref[t]["max_days"])
                  for t in p.teachers if p.tpref.get(t, {}).get("max_days"))
     total = sum(s["dur"] for s in sess.values()) or 1
-    placed_hours = len(rows)
+    placed_hours = sum(1 for r in rows if not r.get("_copy"))
     per_dept = {p.depts.get(d, "No department"): round(10 - min(10, 10 * dept_cost[d] / max(1, dept_hours[d])), 2)
                 for d in dept_hours}
     _, peak = lunch_plan(p, rows)

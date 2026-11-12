@@ -37,6 +37,8 @@ class Problem:
     dept_rooms: dict = field(default_factory=dict)   # dept id -> {room id}
     blocked: set = field(default_factory=set)        # {(room id, day, hour)}
     canteen_limit: int = 0                           # 0 = no limit set
+    by_key: dict = field(default_factory=dict)       # session key -> session id
+    lock_notes: list = field(default_factory=list)   # locks that could not be honoured
 
     # ---- helpers used by solver, validator and agents alike
     def root(self, g):
@@ -45,6 +47,22 @@ class Problem:
 
     def pref_of(self, g):
         return self.gpref.get(self.root(g), {})
+
+    @staticmethod
+    def groups_of(s):
+        """Every class group whose students are busy during session s
+        (several for an elective block, otherwise just its own group)."""
+        return s.get("groups") or [s["group"]]
+
+    @staticmethod
+    def key_of(s):
+        return s.get("key") or f"s{s['id']}"
+
+    @staticmethod
+    def is_fixed(s):
+        """Locked by the committee, or part of an elective block: never moved
+        once placed."""
+        return bool(s.get("lock") or s.get("block"))
 
     def group_days(self, g):
         days = self.pref_of(g).get("days")
@@ -69,18 +87,19 @@ class Problem:
         """Every rule about WHEN session s may start that is never broken."""
         if h < TT_HOURS[0] or h + s["dur"] > LAST_END:
             return False
-        if day not in self.group_days(s["group"]):
-            return False
         if not all(self.teacher_free(s["teacher"], day, h + k) for k in range(s["dur"])):
             return False
-        gp = self.pref_of(s["group"])
-        if gp.get("hard"):
-            if day == "Sat" and gp.get("saturday_ok") is False:
+        for g in self.groups_of(s):
+            if day not in self.group_days(g):
                 return False
-            if gp.get("earliest") and h < gp["earliest"]:
-                return False
-            if gp.get("latest") and h + s["dur"] > gp["latest"]:
-                return False
+            gp = self.pref_of(g)
+            if gp.get("hard"):
+                if day == "Sat" and gp.get("saturday_ok") is False:
+                    return False
+                if gp.get("earliest") and h < gp["earliest"]:
+                    return False
+                if gp.get("latest") and h + s["dur"] > gp["latest"]:
+                    return False
         tp = self.tpref.get(s["teacher"], {})
         if tp.get("hard") and tp.get("preferred"):
             if tp["preferred"] == "morning" and h + s["dur"] > 13:
@@ -138,14 +157,35 @@ def load_problem(engine, today=None):
                                         preferred=r["preferred"], hard=bool(r["hard"]))
     for r in db.q(engine, "select department_id, room_id from department_rooms"):
         p.dept_rooms.setdefault(r["department_id"], set()).add(r["room_id"])
+    members = defaultdict(list)
+    for r in db.q(engine, "select load_id, group_id from elective_members"):
+        members[r["load_id"]].append(r["group_id"])
+    room_by_name = {r["name"]: r["id"] for r in p.rooms}
+    locks = {(r["group_code"], r["subject"], r["teacher"], r["n"]): r
+             for r in db.q(engine, "select * from locks")}
     sid = 0
     for r in db.q(engine, "select * from teaching_load order by id"):
         dur = 2 if r["kind"] == "lab" else 1
-        for _ in range(r["hours"] // dur):
+        block = r.get("block") or None
+        groups = sorted(set(members.get(r["id"], [])) | {r["group_id"]},
+                        key=lambda g: p.groups[g]["code"]) if block else [r["group_id"]]
+        for n in range(r["hours"] // dur):
             sid += 1
-            p.sessions.append(dict(id=sid, load=r["id"], group=r["group_id"], teacher=r["teacher_id"],
-                                   subject=r["subject"], kind=r["kind"], dur=dur,
-                                   size=p.groups[r["group_id"]]["size"], lab_type=r["lab_type"]))
+            s = dict(id=sid, key=f"L{r['id']}.{n}", n=n, load=r["id"], group=r["group_id"],
+                     teacher=r["teacher_id"], subject=r["subject"], kind=r["kind"], dur=dur,
+                     size=r.get("students") or p.groups[r["group_id"]]["size"],
+                     lab_type=r["lab_type"], block=block, meta=n if block else None,
+                     groups=groups if block else None, lock=None)
+            lk = locks.get((p.groups[r["group_id"]]["code"], r["subject"],
+                            p.teachers[r["teacher_id"]]["name"], n))
+            if lk and not block:
+                if lk["room"] in room_by_name:
+                    s["lock"] = (lk["day"], lk["hour"], room_by_name[lk["room"]])
+                else:
+                    p.lock_notes.append(f"Lock on {p.groups[r['group_id']]['code']} {r['subject']} "
+                                        f"names room {lk['room']}, which no longer exists.")
+            p.sessions.append(s)
+            p.by_key[s["key"]] = sid
     for r in db.q(engine, "select room_id, day, hour from placements where source='unresolved'"):
         p.blocked.add((r["room_id"], r["day"], r["hour"]))
     today = today or date.today()
@@ -163,10 +203,15 @@ def check_feasible(p):
     out = []
     if not p.sessions:
         return ["There is no teaching load to schedule."]
-    t_hours, fam_hours = defaultdict(int), defaultdict(int)
+    t_hours, fam_hours, seen_block = defaultdict(int), defaultdict(int), set()
     for s in p.sessions:
         t_hours[s["teacher"]] += s["dur"]
-        fam_hours[s["group"]] += s["dur"]
+        for g in p.groups_of(s):
+            if s.get("block"):
+                if (s["block"], s["meta"], g) in seen_block:
+                    continue
+                seen_block.add((s["block"], s["meta"], g))
+            fam_hours[g] += s["dur"]
         rooms = p.rooms_for(s)
         if not rooms:
             g = p.groups[s["group"]]
@@ -248,6 +293,61 @@ def _slot_score(p, board, s, d, h):
     return score + 0.15 * (h - TT_HOURS[0]) + 0.01 * DAYS.index(d)
 
 
+def place_locked(p, b):
+    """Put every locked session exactly where the committee pinned it. A lock
+    that breaks a rule now (say the teacher became unavailable) is reported
+    and that session is scheduled normally instead."""
+    for s in sorted((s for s in p.sessions if s.get("lock")), key=lambda s: s["id"]):
+        d, h, room = s["lock"]
+        why = b.why_not(s, d, h, room)
+        if why:
+            p.lock_notes.append(f"Lock on {p.groups[s['group']]['code']} {s['subject']} "
+                                f"({d} {h}:00) was not kept: {why}. It was scheduled normally.")
+            s["lock"] = None
+            b.fixed.discard(s["id"])
+            continue
+        b.place(s["id"], d, h, room)
+
+
+def place_blocks(p, b):
+    """Place elective blocks before ordinary classes. Every option of one
+    hour of a block starts together; each needs its own teacher and room.
+    Late-afternoon hours and different days for each hour are preferred,
+    so core classes keep the mornings. Unplaceable hours stay unplaced and
+    are reported like any other session."""
+    blocks = defaultdict(lambda: defaultdict(list))
+    for s in p.sessions:
+        if s.get("block") and s["id"] not in b.time:
+            blocks[s["block"]][s["meta"]].append(s)
+    def reach(name):
+        return len({g for subs in blocks[name].values() for s in subs for g in p.groups_of(s)})
+    for name in sorted(blocks, key=lambda n: (-reach(n), n)):
+        used_days = set()
+        for meta in sorted(blocks[name]):
+            subs = sorted(blocks[name][meta], key=lambda s: (-s["size"], s["id"]))
+            cands = [(d, h) for d in DAYS for h in TT_HOURS
+                     if all(p.hard_ok(s, d, h) for s in subs)]
+            cands.sort(key=lambda dh: (dh[0] in used_days, sum(p.soft_cost(s, *dh) for s in subs),
+                                       -dh[1], DAYS.index(dh[0])))
+            done = False
+            for strict in (True, False):
+                for d, h in cands:
+                    put = []
+                    for s in subs:
+                        if b.why_not(s, d, h, strict_lunch=strict):
+                            break
+                        b.place(s["id"], d, h, b.best_room(s, d, h))
+                        put.append(s["id"])
+                    if len(put) == len(subs):
+                        used_days.add(d)
+                        done = True
+                        break
+                    for x in put:
+                        b.remove(x)
+                if done:
+                    break
+
+
 def construct(p, seed=0):
     """Place every session greedily, most constrained first, then repair
     leftovers by moving one or two blocking classes. -> Board."""
@@ -266,9 +366,13 @@ def construct(p, seed=0):
         gp = p.pref_of(s["group"])
         return not (gp.get("hard") and gp.get("max_days"))
 
-    order = sorted(p.sessions, key=lambda s: (day_limited(s), s["kind"] != "lab", len(options[s["id"]]),
-                                              -t_load[s["teacher"]],
-                                              -s["size"], rng.random()))
+    place_locked(p, b)
+    place_blocks(p, b)
+    for sid in b.time:
+        b.teacher_days[b.sess[sid]["teacher"]].add(b.time[sid][0])
+    order = sorted((s for s in p.sessions if s["id"] not in b.time and not s.get("block")),
+                   key=lambda s: (day_limited(s), s["kind"] != "lab", len(options[s["id"]]),
+                                  -t_load[s["teacher"]], -s["size"], rng.random()))
 
     def put(s, strict):
         best = None
@@ -295,6 +399,8 @@ def construct(p, seed=0):
                 blockers = list(b.conflicts(s, d, h))
                 if len(blockers) > 2:
                     break
+                if any(x in b.fixed for x in blockers):           # never eject locked/elective classes
+                    continue
                 saved = [(x, *b.remove(x)) for x in blockers]
                 if b.try_place(s["id"], d, h):
                     if all(put(b.sess[x], False) for x, *_ in saved):
@@ -328,7 +434,7 @@ def improve(p, b, seconds=60, workers=8, seed=0, progress=None):
         return []
     by_dept = defaultdict(list)
     for s in p.sessions:
-        if s["id"] in b.time:
+        if s["id"] in b.time and not p.is_fixed(s):      # locked and elective classes stay put
             g = p.groups[s["group"]]
             by_dept[g["dept"], g["year"]].append(s)        # one year of one department
     results = []
@@ -541,8 +647,9 @@ def to_rows(p, times, room_of):
         for k in range(s["dur"]):
             rows.append(dict(room_id=room_of[s["id"]], day=d, hour=h + k, group_id=s["group"],
                              teacher_id=s["teacher"], subject=s["subject"], kind=s["kind"],
-                             label=f"{g['code']} · {s['subject']} · {t['name']}"[:200],
-                             session_key=f"s{s['id']}"))
+                             label=(f"{s['block']}: " if s.get("block") else "")
+                             + f"{g['code']} · {s['subject']} · {t['name']}"[:200],
+                             session_key=p.key_of(s), block=s.get("block")))
     return rows
 
 

@@ -1,6 +1,6 @@
 """The input sheets the committee fills in, and the checks run on them.
 
-One workbook, seven tabs. Nothing is written to the database unless every
+One workbook, eight tabs. Nothing is written to the database unless every
 tab passes its checks, so a half-loaded college can never exist.
 """
 import io
@@ -17,7 +17,8 @@ SHEETS = {
     "ClassGroups": (["code", "department", "programme", "year", "size", "parent_code"],
                     [["3B IT", "Information Technology", "B.Tech", 2, 60, ""],
                      ["3B IT-B1", "Information Technology", "B.Tech", 2, 30, "3B IT"]]),
-    "Teachers": (["teacher", "department"], [["Prof. A. Rao", "Information Technology"]]),
+    "Teachers": (["teacher", "department"], [["Prof. A. Rao", "Information Technology"],
+                                             ["Prof. B. Shah", "Information Technology"]]),
     "TeachingLoad": (["class_group", "subject", "teacher", "hours_per_week", "type", "lab_type"],
                      [["3B IT", "Data Structures", "Prof. A. Rao", 3, "lecture", ""],
                       ["3B IT-B1", "Data Structures Lab", "Prof. A. Rao", 2, "lab", "COMPUTER"]]),
@@ -27,6 +28,10 @@ SHEETS = {
     "TeacherPreferences": (["teacher", "unavailable_days", "unavailable_hours", "max_days",
                             "preferred", "must"],
                            [["Prof. A. Rao", "Sat", "Mon-8,Mon-9", 5, "morning", "no"]]),
+    "Electives": (["block", "class_groups", "subject", "teacher", "students", "hours_per_week",
+                   "type", "lab_type"],
+                  [["DE-I 3B IT", "3B IT", "Cloud Computing", "Prof. A. Rao", 30, 2, "lecture", ""],
+                   ["DE-I 3B IT", "3B IT", "Blockchain", "Prof. B. Shah", 30, 2, "lecture", ""]]),
 }
 NOTES = [
     "How to fill this workbook",
@@ -36,6 +41,10 @@ NOTES = [
     "TeachingLoad: one row per subject per class group. type is lecture or lab. A lab runs as 2-hour blocks, so its hours must be even.",
     "ClassPreferences: days_on_campus are never broken. max_days, saturday_ok, earliest_start and latest_finish are preferences unless must = yes.",
     "TeacherPreferences: unavailable_days and unavailable_hours (Day-Hour, 24-hour clock, e.g. Mon-14) are never broken. max_days and preferred (morning or afternoon) are preferences unless must = yes.",
+    "Electives (optional): every row with the same block runs at the same hours, each with its own teacher and room. "
+    "class_groups lists every class whose students choose among them (one division for a department elective; many "
+    "divisions across departments for an open elective); all of them are busy during the block. students is how many "
+    "take that option. Rows in one block must have the same hours_per_week and type, and a teacher only once.",
     "Hours use the 24-hour clock: 8 means 8 AM, 13 means 1 PM. Classes run 8 to 18.",
 ]
 
@@ -51,7 +60,7 @@ def build_template_workbook(with_examples=True):
 
 
 def export_current(engine):
-    """The data now in the database, in the same seven-tab layout."""
+    """The data now in the database, in the same eight-tab layout."""
     frames = read_current(engine)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
@@ -78,7 +87,17 @@ def read_current(engine):
     f["TeachingLoad"] = db.df(engine, """select g.code as class_group, l.subject, t.name as teacher,
         l.hours as hours_per_week, l.kind as type, l.lab_type from teaching_load l
         join class_groups g on g.id=l.group_id join teachers t on t.id=l.teacher_id
-        order by g.code, l.subject""")
+        where l.block is null order by g.code, l.subject""")
+    el = db.q(engine, """select l.id, l.block, l.subject, t.name as teacher, l.students,
+        l.hours as hours_per_week, l.kind as type, l.lab_type from teaching_load l
+        join teachers t on t.id=l.teacher_id where l.block is not null order by l.block, l.subject""")
+    mem = {}
+    for r in db.q(engine, """select m.load_id, g.code from elective_members m
+                             join class_groups g on g.id=m.group_id order by g.code"""):
+        mem.setdefault(r["load_id"], []).append(r["code"])
+    f["Electives"] = pd.DataFrame([{**{k: v for k, v in r.items() if k != "id"},
+                                    "class_groups": ",".join(mem.get(r["id"], []))} for r in el],
+                                  columns=SHEETS["Electives"][0])
     gp = db.df(engine, """select g.code as class_group, p.days_on_campus, p.max_days, p.saturday_ok,
         p.earliest as earliest_start, p.latest as latest_finish, p.hard as must
         from group_prefs p join class_groups g on g.id=p.group_id order by g.code""")
@@ -133,7 +152,7 @@ def _slots(v, where, problems):
 
 
 def parse_frames(frames, room_names):
-    """Validate the seven tabs. -> (clean dict, problems). `clean` is only
+    """Validate the eight tabs. -> (clean dict, problems). `clean` is only
     meaningful when problems is empty."""
     P, clean = [], {}
     for name, (cols, _) in SHEETS.items():
@@ -283,6 +302,55 @@ def parse_frames(frames, room_names):
             unavailable_days=",".join(_days(r["unavailable_days"], w, P)),
             unavailable_hours=",".join(_slots(r["unavailable_hours"], w, P)),
             max_days=md, preferred=pref or None, hard=_yes(r["must"])))
+    clean["electives"] = []
+    blocks = {}
+    for i, r in frames["Electives"].iterrows():
+        w = f"Electives row {row(i)}"
+        blk, t, h, kind = _s(r["block"]), _s(r["teacher"]), _int(r["hours_per_week"]), _s(r["type"]).lower()
+        codes = [c.strip() for c in _s(r["class_groups"]).replace(";", ",").split(",") if c.strip()]
+        ok = True
+        if not blk:
+            P.append(f"{w}: block is empty.")
+            ok = False
+        if not codes:
+            P.append(f"{w}: list at least one class group.")
+            ok = False
+        for c in codes:
+            if c.lower() not in groups:
+                P.append(f"{w}: class group '{c}' is not on the ClassGroups tab.")
+                ok = False
+        if t.lower() not in teachers:
+            P.append(f"{w}: teacher '{t}' is not on the Teachers tab.")
+            ok = False
+        if not _s(r["subject"]):
+            P.append(f"{w}: subject is empty.")
+            ok = False
+        if kind not in ("lecture", "lab"):
+            P.append(f"{w}: type must be lecture or lab, not '{kind}'.")
+            ok = False
+        if not h or h <= 0:
+            P.append(f"{w}: hours_per_week must be a positive number.")
+            ok = False
+        elif kind == "lab" and h % 2:
+            P.append(f"{w}: a lab runs in 2-hour blocks, so hours_per_week must be even (got {h}).")
+            ok = False
+        students = _int(r["students"])
+        if _s(r["students"]) and (not students or students <= 0):
+            P.append(f"{w}: students must be a positive number.")
+            ok = False
+        if not ok:
+            continue
+        first = blocks.setdefault(blk.lower(), dict(name=blk, hours=h, kind=kind, teachers=set(), row=w))
+        if (h, kind) != (first["hours"], first["kind"]):
+            P.append(f"{w}: every row of block '{blk}' must have the same hours_per_week and type "
+                     f"as {first['row']} ({first['hours']} h, {first['kind']}).")
+        if t.lower() in first["teachers"]:
+            P.append(f"{w}: {t} already teaches another option of block '{blk}' at the same time.")
+        first["teachers"].add(t.lower())
+        clean["electives"].append(dict(
+            block=first["name"], groups=sorted({groups[c.lower()] for c in codes}), subject=_s(r["subject"]),
+            teacher=teachers[t.lower()], students=students, hours=h, kind=kind,
+            lab_type=(_s(r["lab_type"]).upper() or None) if kind == "lab" else None))
     clean["departments"] = depts
     return clean, P
 
@@ -290,8 +358,8 @@ def parse_frames(frames, room_names):
 def save_clean(engine, clean, user="import"):
     """Replace the college's academic data in one transaction."""
     with engine.begin() as c:
-        c.execute(delete(db.placements).where(db.placements.c.source == "generated"))
-        for t in (db.teaching_load, db.group_prefs, db.teacher_prefs):
+        c.execute(delete(db.placements).where(db.placements.c.source.in_(["generated", "manual"])))
+        for t in (db.elective_members, db.teaching_load, db.group_prefs, db.teacher_prefs):
             c.execute(delete(t))
         c.execute(delete(db.class_groups))
         c.execute(delete(db.teachers))
@@ -320,6 +388,12 @@ def save_clean(engine, clean, user="import"):
         c.execute(insert(db.teaching_load), [
             dict(group_id=gid[l["group"]], subject=l["subject"], teacher_id=tid[l["teacher"]],
                  hours=l["hours"], kind=l["kind"], lab_type=l["lab_type"]) for l in clean["load"]])
+        for e in clean.get("electives", []):
+            lid = c.execute(insert(db.teaching_load).values(
+                group_id=gid[e["groups"][0]], subject=e["subject"], teacher_id=tid[e["teacher"]],
+                hours=e["hours"], kind=e["kind"], lab_type=e["lab_type"], block=e["block"],
+                students=e["students"])).inserted_primary_key[0]
+            c.execute(insert(db.elective_members), [dict(load_id=lid, group_id=gid[g]) for g in e["groups"]])
         if clean["group_prefs"]:
             c.execute(insert(db.group_prefs), [
                 dict(group_id=gid[p["group"]], **{k: v for k, v in p.items() if k != "group"})

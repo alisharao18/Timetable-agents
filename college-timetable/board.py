@@ -11,6 +11,9 @@ class Board:
     def __init__(self, p):
         self.p = p
         self.sess = {s["id"]: s for s in p.sessions}
+        self.fixed = {s["id"] for s in p.sessions if p.is_fixed(s)}   # locked or elective: never moved
+        for s in p.sessions:
+            p.by_key.setdefault(p.key_of(s), s["id"])
         self.time, self.room = {}, {}                 # sid -> (day, hour) ; sid -> room id
         self.t_busy, self.g_busy, self.r_busy = {}, {}, {}
         self.load_day = defaultdict(int)              # (load id, day) -> sessions that day
@@ -40,13 +43,14 @@ class Board:
     def days_ok(self, s, d):
         """A must-have max_days (class or teacher) is never broken: placing s
         on day d may not add a new day beyond the limit."""
-        gp = self.p.pref_of(s["group"])
-        if gp.get("hard") and gp.get("max_days"):
-            # the whole class (division and its batches) shares one set of days
-            leaves = self.leaves_of(self.p.root(s["group"]))
-            used = [x for x in DAYS if any(self.leaf_hours(leaf, x) for leaf in leaves)]
-            if d not in used and len(used) >= gp["max_days"]:
-                return False
+        for g in self.p.groups_of(s):
+            gp = self.p.pref_of(g)
+            if gp.get("hard") and gp.get("max_days"):
+                # the whole class (division and its batches) shares one set of days
+                leaves = self.leaves_of(self.p.root(g))
+                used = [x for x in DAYS if any(self.leaf_hours(leaf, x) for leaf in leaves)]
+                if d not in used and len(used) >= gp["max_days"]:
+                    return False
         tp = self.p.tpref.get(s["teacher"], {})
         if tp.get("hard") and tp.get("max_days"):
             used = [x for x in DAYS if any((s["teacher"], x, h) in self.t_busy for h in TT_HOURS)]
@@ -88,25 +92,32 @@ class Board:
             x = self.t_busy.get((s["teacher"], d, h + k))
             if x:
                 out.add(x)
-            for g in self.family(s["group"]):
-                x = self.g_busy.get((g, d, h + k))
-                if x:
-                    out.add(x)
+            for g0 in self.p.groups_of(s):
+                for g in self.family(g0):
+                    x = self.g_busy.get((g, d, h + k))
+                    if x and not self.same_slot(s, self.sess[x]):
+                        out.add(x)
         out.discard(s["id"])
         return out
+
+    @staticmethod
+    def same_slot(a, b):
+        """Two options of the same hour of one elective block may share students' time."""
+        return bool(a.get("block")) and a.get("block") == b.get("block") and a.get("meta") == b.get("meta")
 
     def lunch_ok(self, s, d, h, strict=False):
         hrs = {h + k for k in range(s["dur"])} & set(LUNCH_HOURS)
         if not hrs:
             return True
         if strict:
-            res = self.lunch.get(self.p.root(s["group"]), {}).get(d)
-            if res in hrs:
-                return False
-        for leaf in self.leaves_of(s["group"]):
-            taken = {x for x in LUNCH_HOURS if self.leaf_busy(leaf, d, x)} | hrs
-            if len(taken) == len(LUNCH_HOURS):
-                return False
+            for g in self.p.groups_of(s):
+                if self.lunch.get(self.p.root(g), {}).get(d) in hrs:
+                    return False
+        for g in self.p.groups_of(s):
+            for leaf in self.leaves_of(g):
+                taken = {x for x in LUNCH_HOURS if self.leaf_busy(leaf, d, x)} | hrs
+                if len(taken) == len(LUNCH_HOURS):
+                    return False
         t_taken = {x for x in LUNCH_HOURS if (s["teacher"], d, x) in self.t_busy} | hrs
         return len(t_taken) < len(LUNCH_HOURS)
 
@@ -159,7 +170,8 @@ class Board:
             self.home_count[room] += 1
         for k in range(s["dur"]):
             self.t_busy[s["teacher"], d, h + k] = sid
-            self.g_busy[s["group"], d, h + k] = sid
+            for g in self.p.groups_of(s):
+                self.g_busy[g, d, h + k] = sid
             self.r_busy[room, d, h + k] = sid
         self.load_day[s["load"], d] += 1
 
@@ -169,7 +181,9 @@ class Board:
         room = self.room.pop(sid)
         for k in range(s["dur"]):
             del self.t_busy[s["teacher"], d, h + k]
-            del self.g_busy[s["group"], d, h + k]
+            for g in self.p.groups_of(s):
+                if self.g_busy.get((g, d, h + k)) == sid:     # an elective's options share the cell
+                    del self.g_busy[g, d, h + k]
             del self.r_busy[room, d, h + k]
         self.load_day[s["load"], d] -= 1
         return d, h, room
@@ -185,7 +199,9 @@ class Board:
         """Rebuild the board from placement rows (as made by solver.to_rows)."""
         first = {}
         for r in rows:
-            sid = int(str(r["session_key"])[1:])
+            sid = self.p.by_key.get(r.get("session_key"))
+            if sid is None:                               # not a class session (e.g. imported label)
+                continue
             if sid not in first or r["hour"] < first[sid]["hour"]:
                 first[sid] = r
         for sid, r in first.items():

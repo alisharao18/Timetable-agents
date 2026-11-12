@@ -34,7 +34,7 @@ git ignores them and they are never pushed; without them those tests are skipped
 1. **Data > Room workbooks**: upload the classroom workbook and the lab
    workbook. Read the notes it shows, then save.
 2. **Find a room** now works against the real occupancy.
-3. **Data > Classes and teachers**: download the template, fill the seven
+3. **Data > Classes and teachers**: download the template, fill the eight
    tabs, upload. (Or load the sample college to try things out.)
 4. **Generate timetable**: check, generate, review, publish.
 5. **Users**: add coordinators and viewers.
@@ -122,7 +122,7 @@ app.py            pages and navigation
 db.py             tables, connection, the only write paths
 importer.py       reads the classroom and lab workbooks
 finder.py         room search, ranking, booking, cancelling
-templates.py      the seven-tab input workbook and its checks
+templates.py      the eight-tab input workbook and its checks
 sample_data.py    a made-up college for trying the generator
 solver.py         feasibility check, construction, CP-SAT polish
 board.py          live timetable with every hard rule checked per move

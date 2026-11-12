@@ -15,7 +15,7 @@ KINDS = {"student": "Class", "teacher": "Teacher", "department": "Department", "
 def frame(engine):
     """Every weekly placement with names attached."""
     f = db.df(engine, """
-        select p.day, p.hour, p.subject, p.label, p.kind, p.source, p.session_key,
+        select p.day, p.hour, p.subject, p.label, p.kind, p.source, p.session_key, p.block,
                r.name as room, g.code as class_group, pg.code as parent_group,
                t.name as teacher, d.name as department
         from placements p join rooms r on r.id = p.room_id
@@ -24,9 +24,19 @@ def frame(engine):
         left join teachers t on t.id = p.teacher_id
         left join departments d on d.id = g.department_id""")
     if f.empty:
-        f = pd.DataFrame(columns=["day", "hour", "subject", "label", "kind", "source", "session_key",
+        f = pd.DataFrame(columns=["day", "hour", "subject", "label", "kind", "source", "session_key", "block",
                                   "room", "class_group", "parent_group", "teacher", "department"])
     return f
+
+
+def block_members(engine):
+    """Elective block -> every class group code that takes part in it."""
+    out = {}
+    for r in db.q(engine, """select distinct l.block, g.code from teaching_load l
+                             join elective_members m on m.load_id = l.id
+                             join class_groups g on g.id = m.group_id where l.block is not null"""):
+        out.setdefault(r["block"], set()).add(r["code"])
+    return out
 
 
 def keys(engine, by, f=None):
@@ -57,13 +67,20 @@ def grid(engine, by, key, week_of=None, f=None):
     f = frame(engine) if f is None else f
     table = _blank(BOOK_HOURS if by == "room" else TT_HOURS)
     if by == "student":
-        sub = f[(f["class_group"] == key) | (f["parent_group"] == key)]
+        plain = f[f["block"].isna()] if "block" in f else f
+        sub = plain[(plain["class_group"] == key) | (plain["parent_group"] == key)]
         mine = f[f["class_group"] == key]["parent_group"].dropna().unique()
-        if len(mine):                                    # a batch also attends its division's lectures
-            sub = pd.concat([sub, f[f["class_group"] == mine[0]]])
+        parent = db.q(engine, """select p.code from class_groups g join class_groups p on p.id = g.parent_id
+                                 where g.code = :c""", c=key)
+        parent = parent[0]["code"] if parent else (mine[0] if len(mine) else None)
+        if parent:                                       # a batch also attends its division's lectures
+            sub = pd.concat([sub, plain[plain["class_group"] == parent]])
         for r in sub.itertuples():
             who = f"[{r.class_group}] " if r.class_group != key else ""
             _put(table, r.day, r.hour, f"{who}{r.subject}\n{r.teacher} · {r.room}")
+        mine_blocks = [b for b, codes in block_members(engine).items() if key in codes or parent in codes]
+        for r in f[f["block"].isin(mine_blocks)].itertuples() if "block" in f else []:
+            _put(table, r.day, r.hour, f"{r.block}: {r.subject}\n{r.teacher} · {r.room}")
     elif by == "teacher":
         for r in f[f["teacher"] == key].itertuples():
             _put(table, r.day, r.hour, f"{r.class_group} · {r.subject}\n{r.room}")

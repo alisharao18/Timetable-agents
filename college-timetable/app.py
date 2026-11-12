@@ -316,7 +316,7 @@ def page_data():
 
     with t2:
         st.write("Departments, class groups, teachers, teaching load and preferences come in one workbook "
-                 "with seven tabs.")
+                 "with eight tabs (Electives is optional).")
         a, b, c = st.columns(3)
         a.download_button("Download blank template", templates.build_template_workbook(),
                           "timetable_inputs_template.xlsx")

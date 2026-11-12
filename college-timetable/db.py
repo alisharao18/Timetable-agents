@@ -10,7 +10,7 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import (Boolean, Column, Date, DateTime, ForeignKey, Integer,
                         MetaData, String, Table, Text, UniqueConstraint,
-                        create_engine, delete, insert, text)
+                        create_engine, delete, insert, inspect, text)
 
 md = MetaData()
 
@@ -60,7 +60,35 @@ teaching_load = Table(
     Column("teacher_id", ForeignKey("teachers.id"), nullable=False),
     Column("hours", Integer, nullable=False),            # hours per week
     Column("kind", String(10), nullable=False),          # lecture | lab
-    Column("lab_type", String(60)))
+    Column("lab_type", String(60)),
+    Column("block", String(60)),                         # elective block: rows run together
+    Column("students", Integer))                         # elective strength (else group size)
+
+elective_members = Table(                                # every class busy during a block
+    "elective_members", md,
+    Column("load_id", ForeignKey("teaching_load.id"), nullable=False),
+    Column("group_id", ForeignKey("class_groups.id"), nullable=False),
+    UniqueConstraint("load_id", "group_id"))
+
+locks = Table(                                           # sessions pinned by the committee
+    "locks", md,
+    Column("id", Integer, primary_key=True),
+    Column("group_code", String(60), nullable=False),
+    Column("subject", String(100), nullable=False),
+    Column("teacher", String(100), nullable=False),
+    Column("n", Integer, nullable=False),                # which session of that load row
+    Column("day", String(3), nullable=False),
+    Column("hour", Integer, nullable=False),
+    Column("room", String(40), nullable=False),
+    Column("locked_by", String(120)), Column("at", DateTime),
+    UniqueConstraint("group_code", "subject", "teacher", "n", name="uq_lock"))
+
+archives = Table(                                        # past semesters' timetables
+    "archives", md,
+    Column("id", Integer, primary_key=True),
+    Column("label", String(80), nullable=False),
+    Column("created_at", DateTime), Column("created_by", String(120)),
+    Column("rows_json", Text))
 
 group_prefs = Table(
     "group_prefs", md,
@@ -93,6 +121,7 @@ placements = Table(                                      # the weekly timetable
     Column("label", String(200)),                        # what the grid cell shows
     Column("kind", String(10)),                          # lecture | lab
     Column("session_key", String(40)),                   # groups a 2-hour lab's rows
+    Column("block", String(60)),                         # elective block, if any
     Column("source", String(12), nullable=False),        # sheet|generated|unresolved|manual
     UniqueConstraint("room_id", "day", "hour", name="uq_placement_cell"))
 
@@ -154,8 +183,17 @@ def get_engine(url=None):
 
 
 def init_db(engine):
-    """Create any missing tables. Safe to call on every start."""
+    """Create any missing tables, and add columns that newer versions
+    introduced to tables an older database already has. Safe on every start."""
     md.create_all(engine)
+    insp = inspect(engine)
+    with engine.begin() as c:
+        for t in md.sorted_tables:
+            have = {col["name"] for col in insp.get_columns(t.name)}
+            for col in t.columns:
+                if col.name not in have:
+                    typ = col.type.compile(dialect=engine.dialect)
+                    c.execute(text(f'ALTER TABLE {t.name} ADD COLUMN "{col.name}" {typ}'))
 
 
 def q(engine, sql, **params):

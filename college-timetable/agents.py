@@ -111,6 +111,8 @@ def try_move(b, led, relocs, keep_if_worse=False):
     -> (ok, gain). The move is undone unless it is legal and makes things
     no worse (strictly better, or equal with more classes in their own rooms)."""
     sids = [r[0] for r in relocs]
+    if any(x in b.fixed for x in sids):                # locked and elective classes never move
+        return False, 0.0
     before = led.measure(sids)
     saved = {x: (b.time[x], b.room[x]) for x in sids if x in b.time}
     for x in saved:

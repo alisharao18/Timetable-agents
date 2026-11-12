@@ -53,3 +53,18 @@ def test_settings_roundtrip(engine):
     db.set_setting(engine, "canteen_limit", 900)
     db.set_setting(engine, "canteen_limit", 950)
     assert db.get_setting(engine, "canteen_limit") == "950"
+
+
+def test_old_database_gets_new_columns(tmp_path):
+    """A college.db made by an earlier version must keep working."""
+    from sqlalchemy import text
+    e = db.get_engine(f"sqlite:///{tmp_path/'old.db'}")
+    with e.begin() as c:
+        c.execute(text("create table teaching_load (id integer primary key, group_id integer, "
+                       "subject varchar(100), teacher_id integer, hours integer, kind varchar(10), "
+                       "lab_type varchar(60))"))
+        c.execute(text("insert into teaching_load values (1, 1, 'Maths', 1, 3, 'lecture', null)"))
+    db.init_db(e)
+    db.init_db(e)                                          # and again: nothing to add
+    row = db.q(e, "select subject, block, students from teaching_load")[0]
+    assert row == {"subject": "Maths", "block": None, "students": None}
