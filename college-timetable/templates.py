@@ -43,10 +43,10 @@ NOTES = [
 def build_template_workbook(with_examples=True):
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        pd.DataFrame({"Read me": NOTES}).to_excel(xl, "ReadMe", index=False)
+        pd.DataFrame({"Read me": NOTES}).to_excel(xl, sheet_name="ReadMe", index=False)
         for name, (cols, example) in SHEETS.items():
             pd.DataFrame(example if with_examples else [], columns=cols).to_excel(
-                xl, name, index=False)
+                xl, sheet_name=name, index=False)
     return buf.getvalue()
 
 
@@ -55,10 +55,10 @@ def export_current(engine):
     frames = read_current(engine)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        pd.DataFrame({"Read me": NOTES}).to_excel(xl, "ReadMe", index=False)
+        pd.DataFrame({"Read me": NOTES}).to_excel(xl, sheet_name="ReadMe", index=False)
         for name, (cols, _) in SHEETS.items():
             frames.get(name, pd.DataFrame(columns=cols)).reindex(columns=cols).to_excel(
-                xl, name, index=False)
+                xl, sheet_name=name, index=False)
     return buf.getvalue()
 
 

@@ -102,13 +102,13 @@ def export_excel(engine, by, week_of=None):
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         names = keys(engine, by, f)
         if not names:
-            pd.DataFrame({"Note": ["Nothing to show yet."]}).to_excel(xl, "Empty", index=False)
+            pd.DataFrame({"Note": ["Nothing to show yet."]}).to_excel(xl, sheet_name="Empty", index=False)
         for k in names:
             name = re.sub(r"[\[\]:*?/\\]", "-", str(k))[:31] or "Sheet"
             while name.lower() in used:
                 name = name[:28] + f"~{len(used) % 100}"
             used.add(name.lower())
-            grid(engine, by, k, week_of, f).to_excel(xl, name)
+            grid(engine, by, k, week_of, f).to_excel(xl, sheet_name=name)
             ws = xl.sheets[name]
             ws.column_dimensions["A"].width = 12
             for col in "BCDEFG":
