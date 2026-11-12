@@ -111,3 +111,27 @@ sheet_script.gs   script to paste into the Google Sheet
 theme.py          blue, red and black styling
 tests/            60 tests; run with: python -m pytest tests
 ```
+
+## OR-Tools will not load on Windows
+
+If starting the app (or clicking Generate) shows `DLL load failed` or
+`WinDLL(dll_path)` from `ortools`, Windows cannot load the solver's library.
+The app still runs without it: the polish step is skipped and the timetable
+is still complete and checked. To fix it:
+
+1. Install the latest Microsoft Visual C++ Redistributable (x64) from
+   https://aka.ms/vs/17/release/vc_redist.x64.exe, then close and reopen
+   VS Code.
+2. If it still fails, Anaconda's base environment is loading older copies of
+   those files first. Use a clean environment instead:
+
+   ```bash
+   conda create -n timetable python=3.12 -y
+   conda activate timetable
+   cd college-timetable
+   pip install -r requirements.txt
+   streamlit run app.py
+   ```
+
+   In VS Code, choose that interpreter: Ctrl+Shift+P, "Python: Select
+   Interpreter", then `timetable`.

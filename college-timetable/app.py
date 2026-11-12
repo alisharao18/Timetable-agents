@@ -425,8 +425,15 @@ def page_generate():
     else:
         st.success("Inputs check passed: nothing obviously impossible.")
 
+    if solver.CP_SAT_ERROR:
+        st.warning("The exact solver (OR-Tools) could not be loaded on this computer, so the "
+                   "polish step is skipped. Timetables are still complete and checked. "
+                   "See 'OR-Tools will not load on Windows' in README.md to fix it.\n\n"
+                   f"Details: {solver.CP_SAT_ERROR}")
     c1, c2, c3 = st.columns(3)
-    polish = c1.slider("Exact-solver polish (seconds)", 0, 300, 60, step=30,
+    polish = c1.slider("Exact-solver polish (seconds)", 0, 300,
+                       0 if solver.CP_SAT_ERROR else 60, step=30,
+                       disabled=bool(solver.CP_SAT_ERROR),
                        help="CP-SAT re-times one department-year at a time. 0 skips this step.")
     rounds = c2.slider("Negotiation rounds", 0, 400, 150, step=50,
                        help="Department and room agents trade slots and rooms. 0 skips this step.")

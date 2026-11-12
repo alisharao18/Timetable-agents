@@ -154,3 +154,15 @@ def test_dated_bookings_block_the_room_in_generation(college):
     assert not [r for r in rows if r["room_id"] == rid and r["day"] == "Mon"]
     assert validate.audit(p, rows) == []
     db.run(college, "delete from bookings")
+
+
+def test_without_ortools_improve_is_skipped_and_timetable_stays_valid(monkeypatch):
+    """Windows/Anaconda sometimes cannot load the OR-Tools DLL. The app must
+    still build a complete, valid timetable without the polish step."""
+    monkeypatch.setattr(solver, "cp_model", None)
+    p = tiny()
+    b = solver.construct(p)
+    before = solver.board_rows(p, b)
+    assert solver.improve(p, b, seconds=5) == []
+    rows = solver.board_rows(p, b)
+    assert rows == before and validate.audit(p, rows) == []

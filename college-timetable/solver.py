@@ -12,7 +12,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 
-from ortools.sat.python import cp_model
+try:
+    from ortools.sat.python import cp_model
+    CP_SAT_ERROR = None
+except Exception as e:      # e.g. Windows "DLL load failed" inside Anaconda
+    cp_model = None
+    CP_SAT_ERROR = f"{type(e).__name__}: {e}"
 
 import db
 from constants import DAYS, LUNCH_HOURS, TT_HOURS
@@ -307,7 +312,12 @@ def improve(p, b, seconds=60, workers=8, seed=0, progress=None):
     A department's sessions are lifted off the board and re-timed by the
     exact solver against everything else (which stays fixed), starting from
     where they were. If the solver's answer cannot be roomed, the department
-    is put back exactly as it was. -> list of per-department results."""
+    is put back exactly as it was. -> list of per-department results.
+
+    If OR-Tools could not be loaded, the timetable is left as constructed
+    (still complete and valid) and an empty list is returned."""
+    if cp_model is None:
+        return []
     by_dept = defaultdict(list)
     for s in p.sessions:
         if s["id"] in b.time:
